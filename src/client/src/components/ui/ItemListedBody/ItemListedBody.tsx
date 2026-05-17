@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import Axios from 'axios';
 
@@ -7,10 +7,10 @@ import {
     getUpdatedUserParties,
     getUpdatedUserItems
 } from '../../../common/requests';
-import { axiosConfig } from '../../../common/helpers';
+import { axiosConfig, updateCurrentParty } from '../../../common/helpers';
 
 import type { ReactElement } from 'react';
-import type { IMediaItem } from '../../../../../shared/types';
+import type { IMediaItem, RootAppState } from '../../../../../shared/types';
 
 interface Props {
     item: IMediaItem;
@@ -74,6 +74,13 @@ export const ItemListedBody = ({
 }: Props): ReactElement => {
     const { t } = useTranslation();
     const dispatch = useDispatch();
+    const currentParty = useSelector(
+        (state: RootAppState) => state.globalState.party
+    );
+    const partyRef = useRef(currentParty);
+    useEffect(() => {
+        partyRef.current = currentParty;
+    }, [currentParty]);
     const status = item.settings?.status;
     const isConverting = status === 'converting';
 
@@ -106,7 +113,17 @@ export const ItemListedBody = ({
                     !finishedRef.current
                 ) {
                     finishedRef.current = true;
-                    getUpdatedUserParties(dispatch, t);
+                    const updatedUserParties = await getUpdatedUserParties(
+                        dispatch,
+                        t
+                    );
+                    if (partyRef.current && updatedUserParties) {
+                        updateCurrentParty(
+                            dispatch,
+                            updatedUserParties,
+                            partyRef.current
+                        );
+                    }
                     getUpdatedUserItems(dispatch, t);
                     return;
                 }

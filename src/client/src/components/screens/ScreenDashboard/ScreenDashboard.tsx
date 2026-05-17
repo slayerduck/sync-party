@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { getUpdatedUserParties } from '../../../common/requests';
 import { Alert } from '../../display/Alert/Alert';
+import { DuckBackground } from '../../display/DuckBackground/DuckBackground';
 import { PartyTile } from '../../ui/PartyTile/PartyTile';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -128,12 +129,13 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
 
     return (
         <div
-            className="min-h-screen w-full text-gray-100"
+            className="relative min-h-screen w-full text-gray-100 overflow-hidden"
             style={{
                 background:
                     'radial-gradient(1200px 600px at 20% -10%, rgba(159,122,234,0.18), transparent 60%), radial-gradient(900px 500px at 100% 10%, rgba(94,240,155,0.10), transparent 60%), #0a0a0f'
             }}
         >
+            <DuckBackground />
             <header className="sticky top-0 z-30 backdrop-blur bg-black/40 border-b border-white/10">
                 <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
