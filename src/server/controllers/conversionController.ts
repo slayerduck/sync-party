@@ -13,10 +13,14 @@ import {
     shouldBurnInByDefault,
     runConversion
 } from '../ffmpegHelper.js';
+import {
+    setConversionProgress,
+    clearConversionProgress
+} from '../conversionProgress.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
-import type { TrackInfo } from '../ffmpegHelper.js';
+import type { TrackInfo, VideoInfo } from '../ffmpegHelper.js';
 
 // ---------- Multer setup (upload to _pending) ----------
 
@@ -52,6 +56,8 @@ type PendingConversion = {
     originalName: string;
     owner: string;
     tracks: { audio: TrackInfo[]; subtitle: TrackInfo[] };
+    video?: VideoInfo;
+    duration?: number;
     createdAt: number;
 };
 
@@ -103,6 +109,8 @@ const uploadForConversion = (req: Request, res: Response, logger: Logger) => {
                 originalName: req.file.originalname,
                 owner: req.user.id,
                 tracks: { audio: tracks.audio, subtitle: tracks.subtitle },
+                video: tracks.video,
+                duration: tracks.duration,
                 createdAt: Date.now()
             });
 
@@ -245,13 +253,19 @@ const finalizeConversion = async (
         const sourcePath = entry.sourcePath;
         pending.delete(pendingId);
 
+        setConversionProgress(itemId, 0);
+
         runConversion({
             inputPath: sourcePath,
             outputPath,
             audioStreamIndex: audioTrack.index,
             subtitleStreamIndex: burnSubtitles ? null : subAbsoluteIndex,
             subtitleOrdinal: burnSubtitles ? subOrdinal : null,
-            burnSubtitles: !!burnSubtitles && subOrdinal !== null
+            burnSubtitles: !!burnSubtitles && subOrdinal !== null,
+            videoInfo: entry.video,
+            audioInfo: audioTrack,
+            duration: entry.duration,
+            onProgress: (pct) => setConversionProgress(itemId, pct)
         })
             .then(async () => {
                 try {
@@ -271,6 +285,7 @@ const finalizeConversion = async (
                 } catch {
                     // best effort
                 }
+                setTimeout(() => clearConversionProgress(itemId), 5000);
             })
             .catch(async (convErr) => {
                 logger.log('error', 'Conversion failed', convErr);
@@ -297,6 +312,7 @@ const finalizeConversion = async (
                 } catch {
                     // best effort
                 }
+                clearConversionProgress(itemId);
             });
 
         return res

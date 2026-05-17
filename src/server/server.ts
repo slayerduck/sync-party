@@ -35,6 +35,8 @@ import { authController } from './controllers/authController.js';
 import { fileController } from './controllers/fileController.js';
 import { conversionController } from './controllers/conversionController.js';
 import { zipUploadController } from './controllers/zipUploadController.js';
+import { getConversionProgress } from './conversionProgress.js';
+import { MediaItem } from './models/MediaItem.js';
 import { mediaItemController } from './controllers/mediaItemController.js';
 import { userController } from './controllers/userController.js';
 import { partyController } from './controllers/partyController.js';
@@ -561,6 +563,26 @@ app.delete(
     mustBeAuthenticated,
     (req, res) => {
         conversionController.cancelPending(req, res);
+    }
+);
+
+app.get(
+    '/api/conversionProgress/:itemId',
+    mustBeAuthenticated,
+    async (req, res) => {
+        const itemId = req.params.itemId;
+        const percent = getConversionProgress(itemId);
+        let status: string | undefined;
+        try {
+            const item = await MediaItem.findOne({ where: { id: itemId } });
+            status = item?.settings?.status;
+        } catch {
+            // best effort
+        }
+        return res.json({
+            percent: typeof percent === 'number' ? percent : null,
+            status: status ?? null
+        });
     }
 );
 

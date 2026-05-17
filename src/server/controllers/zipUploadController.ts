@@ -14,6 +14,10 @@ import {
     shouldBurnInByDefault,
     runConversion
 } from '../ffmpegHelper.js';
+import {
+    setConversionProgress,
+    clearConversionProgress
+} from '../conversionProgress.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -253,6 +257,8 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                       )
                     : null;
 
+                setConversionProgress(itemId, 0);
+
                 runConversion({
                     inputPath: pendingPath,
                     outputPath,
@@ -263,7 +269,11 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                         ? defaultSub.index
                         : null,
                     subtitleOrdinal: burn ? subOrdinal : null,
-                    burnSubtitles: burn
+                    burnSubtitles: burn,
+                    videoInfo: probed.video,
+                    audioInfo: defaultAudio,
+                    duration: probed.duration,
+                    onProgress: (pct) => setConversionProgress(itemId, pct)
                 })
                     .then(async () => {
                         try {
@@ -284,6 +294,10 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                         } catch {
                             // best effort
                         }
+                        setTimeout(
+                            () => clearConversionProgress(itemId),
+                            5000
+                        );
                     })
                     .catch(async (convErr) => {
                         logger.log(
@@ -316,6 +330,7 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                         } catch {
                             // best effort
                         }
+                        clearConversionProgress(itemId);
                     });
             } else {
                 const destFilename = `${itemId}-${safeName}`;
