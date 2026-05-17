@@ -14,6 +14,7 @@ import { AddMediaTabUser } from '../AddMediaTabUser/AddMediaTabUser';
 import { AddMediaTabWeb } from '../AddMediaTabWeb/AddMediaTabWeb';
 import { AddMediaUploadProgress } from '../AddMediaUploadProgress/AddMediaUploadProgress';
 import { Button } from '../../input/Button/Button';
+import { ConvertTrackPicker } from '../ConvertTrackPicker/ConvertTrackPicker';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faThumbsUp } from '@fortawesome/free-regular-svg-icons';
@@ -28,7 +29,8 @@ import type {
     ClientParty,
     IMediaItem,
     NewMediaItem,
-    RootAppState
+    RootAppState,
+    ZipPendingConvertInfo
 } from '../../../../../shared/types';
 
 type Props = {
@@ -77,6 +79,9 @@ export const AddMedia = ({
         videoTitle: string;
         channelTitle: string;
     } | null>(null);
+    const [zipPendingConvert, setZipPendingConvert] =
+        useState<ZipPendingConvertInfo | null>(null);
+    const [finalizingZip, setFinalizingZip] = useState(false);
 
     const dispatch = useDispatch();
 
@@ -193,23 +198,37 @@ export const AddMedia = ({
                     updatePartyAndUserParties();
                     getUpdatedUserItems(dispatch, t);
                     resetUploadForm();
-                    const converting = response.data.converting || 0;
-                    setLastCreatedItem({
-                        ...mediaItem,
-                        name:
-                            converting > 0
-                                ? t('mediaMenu.zipAddedWithConverting', {
-                                      count: response.data.count,
-                                      converting
-                                  })
-                                : t('mediaMenu.zipAddedCount', {
-                                      count: response.data.count
-                                  })
-                    });
                     setIsUploading(false);
-                    setAddedSuccessfully(true);
-                    hideFinishInAFewSecs();
-                    toggleCollapseAddMediaMenu();
+
+                    const readyCount: number = response.data.count || 0;
+                    const pending: ZipPendingConvertInfo | null =
+                        response.data.pendingZip || null;
+
+                    if (pending && pending.convertCount > 0) {
+                        // Keep the menu open so the user can pick tracks
+                        // for the convertable files before we queue them.
+                        setZipPendingConvert(pending);
+                        if (readyCount > 0) {
+                            setLastCreatedItem({
+                                ...mediaItem,
+                                name: t('mediaMenu.zipAddedCount', {
+                                    count: readyCount
+                                })
+                            });
+                            setAddedSuccessfully(true);
+                            hideFinishInAFewSecs();
+                        }
+                    } else {
+                        setLastCreatedItem({
+                            ...mediaItem,
+                            name: t('mediaMenu.zipAddedCount', {
+                                count: readyCount
+                            })
+                        });
+                        setAddedSuccessfully(true);
+                        hideFinishInAFewSecs();
+                        toggleCollapseAddMediaMenu();
+                    }
                 } else {
                     dispatch(
                         setGlobalState({
@@ -229,6 +248,64 @@ export const AddMedia = ({
                 setUploadError(true);
             }
         }
+    };
+
+    const finalizeZip = async (choice: {
+        audioIndex: number;
+        subtitleIndex: number | null;
+        burnSubtitles: boolean;
+    }): Promise<void> => {
+        if (!zipPendingConvert || finalizingZip) return;
+        setFinalizingZip(true);
+        try {
+            const response = await Axios.post(
+                `/api/file/zip/${zipPendingConvert.zipJobId}/finalize`,
+                choice,
+                axiosConfig()
+            );
+            if (response.data.success === true) {
+                const queuedCount = (response.data.queued || []).length;
+                await updatePartyAndUserParties();
+                getUpdatedUserItems(dispatch, t);
+                setLastCreatedItem({
+                    ...mediaItem,
+                    name: t('mediaMenu.zipQueuedConverting', {
+                        count: queuedCount
+                    })
+                });
+                setZipPendingConvert(null);
+                setAddedSuccessfully(true);
+                hideFinishInAFewSecs();
+                toggleCollapseAddMediaMenu();
+            } else {
+                dispatch(
+                    setGlobalState({
+                        errorMessage: t('mediaMenu.conversionStartError')
+                    })
+                );
+            }
+        } catch {
+            dispatch(
+                setGlobalState({
+                    errorMessage: t('mediaMenu.conversionStartError')
+                })
+            );
+        } finally {
+            setFinalizingZip(false);
+        }
+    };
+
+    const cancelZipPending = async (): Promise<void> => {
+        if (!zipPendingConvert) return;
+        try {
+            await Axios.delete(
+                `/api/file/zip/${zipPendingConvert.zipJobId}`,
+                axiosConfig()
+            );
+        } catch {
+            // best effort
+        }
+        setZipPendingConvert(null);
     };
 
     const onConvertItemCreated = async (): Promise<void> => {
@@ -468,16 +545,54 @@ export const AddMedia = ({
                                         ): void => setPlayerFocused(focused)}
                                     ></AddMediaTabFile>
                                 )}
-                                {activeTab === 'zip' && (
-                                    <AddMediaTabZip
-                                        file={file}
-                                        setFile={(f: File | null): void =>
-                                            setFile(f)
-                                        }
-                                        addZipItem={addZipItem}
-                                        resetUploadForm={resetUploadForm}
-                                    ></AddMediaTabZip>
-                                )}
+                                {activeTab === 'zip' &&
+                                    (zipPendingConvert ? (
+                                        <div>
+                                            <p className="mb-2 text-gray-300 text-sm">
+                                                {t(
+                                                    'mediaMenu.zipPickTracksHint',
+                                                    {
+                                                        count: zipPendingConvert.convertCount,
+                                                        name: zipPendingConvert
+                                                            .sample.originalName
+                                                    }
+                                                )}
+                                            </p>
+                                            <ConvertTrackPicker
+                                                tracks={
+                                                    zipPendingConvert.sample
+                                                        .tracks
+                                                }
+                                                submitLabel={t(
+                                                    'mediaMenu.startConversion'
+                                                )}
+                                                submittingLabel={t(
+                                                    'mediaMenu.startingConversion'
+                                                )}
+                                                busy={finalizingZip}
+                                                onSubmit={(c): void => {
+                                                    finalizeZip(c);
+                                                }}
+                                                onCancel={(): void => {
+                                                    cancelZipPending();
+                                                }}
+                                                setPlayerFocused={(
+                                                    focused: boolean
+                                                ): void =>
+                                                    setPlayerFocused(focused)
+                                                }
+                                            />
+                                        </div>
+                                    ) : (
+                                        <AddMediaTabZip
+                                            file={file}
+                                            setFile={(f: File | null): void =>
+                                                setFile(f)
+                                            }
+                                            addZipItem={addZipItem}
+                                            resetUploadForm={resetUploadForm}
+                                        ></AddMediaTabZip>
+                                    ))}
                                 {activeTab === 'convert' && (
                                     <AddMediaTabConvert
                                         party={party}

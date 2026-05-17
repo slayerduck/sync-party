@@ -7,28 +7,26 @@ import { v4 as uuid } from 'uuid';
 import { MediaItem } from '../models/MediaItem.js';
 import { Party } from '../models/Party.js';
 import { updatePartyItems } from '../database/generalOperations.js';
-import {
-    probeTracks,
-    pickDefaultAudio,
-    pickDefaultSubtitle,
-    shouldBurnInByDefault,
-    runConversion
-} from '../ffmpegHelper.js';
-import {
-    setConversionProgress,
-    clearConversionProgress,
-    registerActiveConversion,
-    unregisterActiveConversion
-} from '../conversionProgress.js';
+import { probeTracks } from '../ffmpegHelper.js';
+import { queueConversion } from '../conversionRunner.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
 import type { CreationAttributes } from 'sequelize';
+import type { ProbedTracks, TrackInfo, VideoInfo } from '../ffmpegHelper.js';
 
-const zipPendingDir = () => path.resolve('data/uploads/_pending');
+const zipPendingDir = (): string => path.resolve('data/uploads/_pending');
 
-const ensureDir = (p: string) => {
+const ensureDir = (p: string): void => {
     if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+};
+
+const tryUnlink = (p: string): void => {
+    try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+        // best effort
+    }
 };
 
 const zipStorage = multer.diskStorage({
@@ -87,7 +85,7 @@ const walkFiles = (dir: string): string[] => {
     return out;
 };
 
-const rmDirSafe = (dir: string) => {
+const rmDirSafe = (dir: string): void => {
     try {
         fs.rmSync(dir, { recursive: true, force: true });
     } catch {
@@ -95,7 +93,55 @@ const rmDirSafe = (dir: string) => {
     }
 };
 
-const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
+// ---------- Phase-2 pending state (one entry per zip upload) ----------
+
+type ConvertCandidate = {
+    pendingPath: string;
+    originalName: string;
+    displayName: string;
+    itemId: string;
+    outputFilename: string;
+    outputPath: string;
+    probed: ProbedTracks;
+};
+
+type PendingZip = {
+    owner: string;
+    partyId: string;
+    candidates: ConvertCandidate[];
+    createdAt: number;
+};
+
+const PENDING_ZIP_TTL_MS = 60 * 60 * 1000; // 1h
+const pendingZips = new Map<string, PendingZip>();
+
+const sweepPendingZips = (): void => {
+    const now = Date.now();
+    for (const [id, entry] of pendingZips.entries()) {
+        if (now - entry.createdAt > PENDING_ZIP_TTL_MS) {
+            for (const c of entry.candidates) tryUnlink(c.pendingPath);
+            pendingZips.delete(id);
+        }
+    }
+};
+
+const trackInfoForResponse = (
+    t: TrackInfo
+): {
+    index: number;
+    codec?: string;
+    language?: string;
+    title?: string;
+} => ({
+    index: t.index,
+    codec: t.codec,
+    language: t.language,
+    title: t.title
+});
+
+// ---------- Phase 1: upload + unzip + classify ----------
+
+const uploadZipFile = (req: Request, res: Response, logger: Logger): void => {
     uploadZip(req, res, async (err) => {
         if (err) {
             logger.log('error', 'Multer error uploading zip', err);
@@ -120,11 +166,7 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
             !party.members.includes(req.user.id) ||
             (party.status !== 'active' && req.user.role !== 'admin')
         ) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch {
-                // best effort
-            }
+            tryUnlink(req.file.path);
             return res
                 .status(403)
                 .json({ success: false, msg: 'noPartyAccess' });
@@ -141,26 +183,23 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
             await unzipTo(zipPath, extractDir);
         } catch (unzipErr) {
             logger.log('error', 'unzip failed', unzipErr);
-            try {
-                fs.unlinkSync(zipPath);
-            } catch {
-                // best effort
-            }
+            tryUnlink(zipPath);
             rmDirSafe(extractDir);
             return res.status(500).json({ success: false, msg: 'unzipError' });
         }
 
         const files = walkFiles(extractDir).filter((f) => MEDIA_EXT_RE.test(f));
 
-        const created: {
+        const addedReady: {
             id: string;
             name: string;
-            needsConversion: boolean;
         }[] = [];
         const errors: string[] = [];
 
         const uploadsDir = path.resolve('data/uploads');
         ensureDir(zipPendingDir());
+
+        const candidates: ConvertCandidate[] = [];
 
         for (const src of files) {
             const originalName = path.basename(src);
@@ -171,8 +210,6 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
             const needsConversion = !PLAYABLE_EXT_RE.test(originalName);
 
             if (needsConversion) {
-                // Move into the pending directory; we'll re-encode to mp4 in
-                // the uploads directory and remove the source on success.
                 const pendingPath = path.join(
                     zipPendingDir(),
                     `${itemId}-${safeName}`
@@ -189,159 +226,42 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                     }
                 }
 
-                let probed;
+                let probed: ProbedTracks;
                 try {
                     probed = await probeTracks(pendingPath);
                 } catch (probeErr) {
-                    logger.log('error', 'probe failed for zip item', probeErr);
-                    errors.push(String(probeErr));
-                    try {
-                        fs.unlinkSync(pendingPath);
-                    } catch {
-                        // best effort
-                    }
+                    logger.log(
+                        'error',
+                        `probe failed for ${originalName}`,
+                        probeErr
+                    );
+                    errors.push(`${originalName}: probe failed`);
+                    tryUnlink(pendingPath);
                     continue;
                 }
 
-                const defaultAudio = pickDefaultAudio(probed.audio);
-                const defaultSub = pickDefaultSubtitle(probed.subtitle);
-                const burn =
-                    shouldBurnInByDefault(defaultAudio) && defaultSub !== null;
-
-                if (!defaultAudio) {
+                if (probed.audio.length === 0) {
                     logger.log(
                         'warn',
                         `Skipping ${originalName}: no audio track`
                     );
-                    try {
-                        fs.unlinkSync(pendingPath);
-                    } catch {
-                        // best effort
-                    }
                     errors.push(`${originalName}: no audio track`);
+                    tryUnlink(pendingPath);
                     continue;
                 }
 
-                const outputFilename = `${itemId}-${safeBase}.mp4`;
-                const outputPath = path.join(uploadsDir, outputFilename);
-
-                const newItem: CreationAttributes<MediaItem> = {
-                    id: itemId,
-                    type: 'file',
-                    owner: req.user.id,
-                    name: displayName,
-                    url: outputFilename,
-                    settings: { status: 'converting' }
-                };
-
-                try {
-                    const dbItem = await MediaItem.create(newItem);
-                    await updatePartyItems(party.id, dbItem.id);
-                    created.push({
-                        id: dbItem.id,
-                        name: displayName,
-                        needsConversion: true
-                    });
-                } catch (dbErr) {
-                    logger.log('error', 'Failed to insert zip item', dbErr);
-                    errors.push(String(dbErr));
-                    try {
-                        fs.unlinkSync(pendingPath);
-                    } catch {
-                        // best effort
-                    }
-                    continue;
-                }
-
-                const subOrdinal = defaultSub
-                    ? probed.subtitle.findIndex(
-                          (t) => t.index === defaultSub.index
-                      )
-                    : null;
-
-                setConversionProgress(itemId, 0);
-
-                runConversion({
-                    inputPath: pendingPath,
-                    outputPath,
-                    audioStreamIndex: defaultAudio.index,
-                    subtitleStreamIndex: burn
-                        ? null
-                        : defaultSub
-                        ? defaultSub.index
-                        : null,
-                    subtitleOrdinal: burn ? subOrdinal : null,
-                    burnSubtitles: burn,
-                    videoInfo: probed.video,
-                    audioInfo: defaultAudio,
-                    duration: probed.duration,
-                    onProgress: (pct) => setConversionProgress(itemId, pct),
-                    onSpawn: (proc) =>
-                        registerActiveConversion(itemId, {
-                            proc,
-                            sourcePath: pendingPath,
-                            outputPath
-                        })
-                })
-                    .then(async () => {
-                        unregisterActiveConversion(itemId);
-                        try {
-                            await MediaItem.update(
-                                { settings: { status: 'ready' } },
-                                { where: { id: itemId } }
-                            );
-                        } catch (updErr) {
-                            logger.log(
-                                'error',
-                                'Failed to mark zip conversion ready',
-                                updErr
-                            );
-                        }
-                        try {
-                            if (fs.existsSync(pendingPath))
-                                fs.unlinkSync(pendingPath);
-                        } catch {
-                            // best effort
-                        }
-                        setTimeout(
-                            () => clearConversionProgress(itemId),
-                            5000
-                        );
-                    })
-                    .catch(async (convErr) => {
-                        unregisterActiveConversion(itemId);
-                        logger.log(
-                            'error',
-                            `Conversion failed for ${originalName}`,
-                            convErr
-                        );
-                        try {
-                            await MediaItem.update(
-                                {
-                                    settings: {
-                                        status: 'failed',
-                                        error: String(convErr).slice(0, 500)
-                                    }
-                                },
-                                { where: { id: itemId } }
-                            );
-                        } catch {
-                            // already logged
-                        }
-                        try {
-                            if (fs.existsSync(outputPath))
-                                fs.unlinkSync(outputPath);
-                        } catch {
-                            // best effort
-                        }
-                        try {
-                            if (fs.existsSync(pendingPath))
-                                fs.unlinkSync(pendingPath);
-                        } catch {
-                            // best effort
-                        }
-                        clearConversionProgress(itemId);
-                    });
+                candidates.push({
+                    pendingPath,
+                    originalName,
+                    displayName,
+                    itemId,
+                    outputFilename: `${itemId}-${safeBase}.mp4`,
+                    outputPath: path.join(
+                        uploadsDir,
+                        `${itemId}-${safeBase}.mp4`
+                    ),
+                    probed
+                });
             } else {
                 const destFilename = `${itemId}-${safeName}`;
                 const destPath = path.join(uploadsDir, destFilename);
@@ -370,40 +290,209 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                 try {
                     const dbItem = await MediaItem.create(newItem);
                     await updatePartyItems(party.id, dbItem.id);
-                    created.push({
-                        id: dbItem.id,
-                        name: displayName,
-                        needsConversion: false
-                    });
+                    addedReady.push({ id: dbItem.id, name: displayName });
                 } catch (dbErr) {
                     logger.log('error', 'Failed to insert zip item', dbErr);
                     errors.push(String(dbErr));
-                    try {
-                        fs.unlinkSync(destPath);
-                    } catch {
-                        // best effort
-                    }
+                    tryUnlink(destPath);
                 }
             }
         }
 
         rmDirSafe(extractDir);
-        try {
-            fs.unlinkSync(zipPath);
-        } catch {
-            // best effort
-        }
+        tryUnlink(zipPath);
 
-        const converting = created.filter((c) => c.needsConversion).length;
+        sweepPendingZips();
+
+        let pendingZip: {
+            zipJobId: string;
+            convertCount: number;
+            sample: {
+                originalName: string;
+                duration: number | null;
+                tracks: {
+                    audio: ReturnType<typeof trackInfoForResponse>[];
+                    subtitle: ReturnType<typeof trackInfoForResponse>[];
+                };
+            };
+        } | null = null;
+
+        if (candidates.length > 0) {
+            const zipJobId = uuid();
+            pendingZips.set(zipJobId, {
+                owner: req.user.id,
+                partyId: party.id,
+                candidates,
+                createdAt: Date.now()
+            });
+
+            const sample = candidates[0].probed;
+            pendingZip = {
+                zipJobId,
+                convertCount: candidates.length,
+                sample: {
+                    originalName: candidates[0].originalName,
+                    duration: sample.duration ?? null,
+                    tracks: {
+                        audio: sample.audio.map(trackInfoForResponse),
+                        subtitle: sample.subtitle.map(trackInfoForResponse)
+                    }
+                }
+            };
+        }
 
         return res.status(200).json({
             success: true,
-            count: created.length,
-            converting,
-            items: created,
-            skipped: errors.length
+            count: addedReady.length,
+            addedReady,
+            skipped: errors.length,
+            pendingZip
         });
     });
 };
 
-export const zipUploadController = { uploadZipFile };
+// ---------- Phase 2: apply track choices, queue conversions ----------
+
+const finalizeZipConversions = async (
+    req: Request,
+    res: Response,
+    logger: Logger
+): Promise<Response> => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, msg: 'unauthorized' });
+    }
+
+    const zipJobId = req.params.zipJobId;
+    const entry = pendingZips.get(zipJobId);
+
+    if (!entry) {
+        return res
+            .status(404)
+            .json({ success: false, msg: 'pendingZipNotFound' });
+    }
+    if (entry.owner !== req.user.id) {
+        return res.status(403).json({ success: false, msg: 'notOwner' });
+    }
+
+    const { audioIndex, subtitleIndex, burnSubtitles } = req.body as {
+        audioIndex: number;
+        subtitleIndex: number | null;
+        burnSubtitles: boolean;
+    };
+
+    if (typeof audioIndex !== 'number') {
+        return res.status(400).json({ success: false, msg: 'validationError' });
+    }
+
+    const party = await Party.findOne({ where: { id: entry.partyId } });
+    if (
+        !party ||
+        !party.members.includes(req.user.id) ||
+        (party.status !== 'active' && req.user.role !== 'admin')
+    ) {
+        return res.status(403).json({ success: false, msg: 'noPartyAccess' });
+    }
+
+    pendingZips.delete(zipJobId);
+
+    const queued: { id: string; name: string }[] = [];
+    const skipped: string[] = [];
+
+    for (const c of entry.candidates) {
+        const audioTrack: TrackInfo | undefined = c.probed.audio.find(
+            (t) => t.index === audioIndex
+        );
+        if (!audioTrack) {
+            logger.log(
+                'warn',
+                `Zip item ${c.originalName} has no audio track ${audioIndex}; skipping`
+            );
+            skipped.push(c.originalName);
+            tryUnlink(c.pendingPath);
+            continue;
+        }
+
+        let subAbsIndex: number | null = null;
+        let subOrdinal: number | null = null;
+        if (typeof subtitleIndex === 'number') {
+            const idx = c.probed.subtitle.findIndex(
+                (t) => t.index === subtitleIndex
+            );
+            if (idx === -1) {
+                // Subtitle track not present in this file; skip burn but
+                // still convert without subs.
+                subAbsIndex = null;
+                subOrdinal = null;
+            } else {
+                subAbsIndex = subtitleIndex;
+                subOrdinal = idx;
+            }
+        }
+
+        const willBurn = !!burnSubtitles && subOrdinal !== null;
+
+        const videoInfo: VideoInfo | undefined = c.probed.video;
+
+        const newItem: CreationAttributes<MediaItem> = {
+            id: c.itemId,
+            type: 'file',
+            owner: req.user.id,
+            name: c.displayName,
+            url: c.outputFilename,
+            settings: { status: 'converting' }
+        };
+
+        try {
+            const dbItem = await MediaItem.create(newItem);
+            await updatePartyItems(party.id, dbItem.id);
+            queued.push({ id: dbItem.id, name: c.displayName });
+        } catch (dbErr) {
+            logger.log('error', 'Failed to insert zip convert item', dbErr);
+            skipped.push(c.originalName);
+            tryUnlink(c.pendingPath);
+            continue;
+        }
+
+        queueConversion({
+            itemId: c.itemId,
+            sourcePath: c.pendingPath,
+            outputPath: c.outputPath,
+            audioStreamIndex: audioTrack.index,
+            subtitleStreamIndex: willBurn ? null : subAbsIndex,
+            subtitleOrdinal: willBurn ? subOrdinal : null,
+            burnSubtitles: willBurn,
+            videoInfo,
+            audioInfo: audioTrack,
+            duration: c.probed.duration,
+            logger,
+            label: c.originalName
+        });
+    }
+
+    return res.status(200).json({
+        success: true,
+        queued,
+        skipped
+    });
+};
+
+// ---------- Cancel a phase-1 result the user didn't finalize ----------
+
+const cancelPendingZip = (req: Request, res: Response): Response => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, msg: 'unauthorized' });
+    }
+    const zipJobId = req.params.zipJobId;
+    const entry = pendingZips.get(zipJobId);
+    if (entry && entry.owner === req.user.id) {
+        for (const c of entry.candidates) tryUnlink(c.pendingPath);
+        pendingZips.delete(zipJobId);
+    }
+    return res.status(200).json({ success: true });
+};
+
+export const zipUploadController = {
+    uploadZipFile,
+    finalizeZipConversions,
+    cancelPendingZip
+};

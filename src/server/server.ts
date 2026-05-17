@@ -546,6 +546,18 @@ app.post('/api/file/zip', mustBeAuthenticated, (req, res) => {
     zipUploadController.uploadZipFile(req, res, logger);
 });
 
+app.post(
+    '/api/file/zip/:zipJobId/finalize',
+    mustBeAuthenticated,
+    async (req, res) => {
+        await zipUploadController.finalizeZipConversions(req, res, logger);
+    }
+);
+
+app.delete('/api/file/zip/:zipJobId', mustBeAuthenticated, (req, res) => {
+    zipUploadController.cancelPendingZip(req, res);
+});
+
 app.post('/api/file/convert', mustBeAuthenticated, (req, res) => {
     conversionController.uploadForConversion(req, res, logger);
 });

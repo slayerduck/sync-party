@@ -71,8 +71,10 @@ export const translations = {
                 invalidZipFile: 'Please select a .zip archive.',
                 uploadZipLabel: 'Upload zip',
                 zipAddedCount: '{{count}} files added from zip',
-                zipAddedWithConverting:
-                    '{{count}} files added from zip ({{converting}} converting)',
+                zipQueuedConverting:
+                    '{{count}} files from zip queued for conversion',
+                zipPickTracksHint:
+                    '{{count}} videos in the zip need conversion. Picked from "{{name}}". The same audio/subtitle choice will be applied to every file.',
                 addConvertTab: 'Upload a file to convert (mkv, etc.)',
                 addConvertDragDrop:
                     'Drag & drop a non-mp4 video here to convert',

@@ -10,15 +10,9 @@ import {
     probeTracks,
     pickDefaultAudio,
     pickDefaultSubtitle,
-    shouldBurnInByDefault,
-    runConversion
+    shouldBurnInByDefault
 } from '../ffmpegHelper.js';
-import {
-    setConversionProgress,
-    clearConversionProgress,
-    registerActiveConversion,
-    unregisterActiveConversion
-} from '../conversionProgress.js';
+import { queueConversion } from '../conversionRunner.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -139,9 +133,7 @@ const uploadForConversion = (req: Request, res: Response, logger: Logger) => {
             } catch {
                 // best effort
             }
-            return res
-                .status(500)
-                .json({ success: false, msg: 'probeError' });
+            return res.status(500).json({ success: false, msg: 'probeError' });
         }
     });
 };
@@ -153,7 +145,9 @@ const finalizeConversion = async (
 ) => {
     try {
         if (!req.user) {
-            return res.status(401).json({ success: false, msg: 'unauthorized' });
+            return res
+                .status(401)
+                .json({ success: false, msg: 'unauthorized' });
         }
 
         const pendingId = req.params.pendingId;
@@ -165,24 +159,17 @@ const finalizeConversion = async (
                 .json({ success: false, msg: 'pendingNotFound' });
         }
         if (entry.owner !== req.user.id) {
-            return res
-                .status(403)
-                .json({ success: false, msg: 'notOwner' });
+            return res.status(403).json({ success: false, msg: 'notOwner' });
         }
 
-        const {
-            name,
-            partyId,
-            audioIndex,
-            subtitleIndex,
-            burnSubtitles
-        } = req.body as {
-            name: string;
-            partyId: string;
-            audioIndex: number;
-            subtitleIndex: number | null;
-            burnSubtitles: boolean;
-        };
+        const { name, partyId, audioIndex, subtitleIndex, burnSubtitles } =
+            req.body as {
+                name: string;
+                partyId: string;
+                audioIndex: number;
+                subtitleIndex: number | null;
+                burnSubtitles: boolean;
+            };
 
         if (
             typeof name !== 'string' ||
@@ -251,14 +238,12 @@ const finalizeConversion = async (
 
         await updatePartyItems(party.id, dbItem.id);
 
-        // Fire & forget; we don't block the HTTP response on the conversion.
         const sourcePath = entry.sourcePath;
         pending.delete(pendingId);
 
-        setConversionProgress(itemId, 0);
-
-        runConversion({
-            inputPath: sourcePath,
+        queueConversion({
+            itemId,
+            sourcePath,
             outputPath,
             audioStreamIndex: audioTrack.index,
             subtitleStreamIndex: burnSubtitles ? null : subAbsoluteIndex,
@@ -267,72 +252,16 @@ const finalizeConversion = async (
             videoInfo: entry.video,
             audioInfo: audioTrack,
             duration: entry.duration,
-            onProgress: (pct) => setConversionProgress(itemId, pct),
-            onSpawn: (proc) =>
-                registerActiveConversion(itemId, {
-                    proc,
-                    sourcePath,
-                    outputPath
-                })
-        })
-            .then(async () => {
-                unregisterActiveConversion(itemId);
-                try {
-                    await MediaItem.update(
-                        { settings: { status: 'ready' } },
-                        { where: { id: itemId } }
-                    );
-                } catch (updateErr) {
-                    logger.log(
-                        'error',
-                        'Failed to mark conversion ready',
-                        updateErr
-                    );
-                }
-                try {
-                    if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
-                } catch {
-                    // best effort
-                }
-                setTimeout(() => clearConversionProgress(itemId), 5000);
-            })
-            .catch(async (convErr) => {
-                unregisterActiveConversion(itemId);
-                logger.log('error', 'Conversion failed', convErr);
-                try {
-                    await MediaItem.update(
-                        {
-                            settings: {
-                                status: 'failed',
-                                error: String(convErr).slice(0, 500)
-                            }
-                        },
-                        { where: { id: itemId } }
-                    );
-                } catch {
-                    // already logged
-                }
-                try {
-                    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-                } catch {
-                    // best effort
-                }
-                try {
-                    if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
-                } catch {
-                    // best effort
-                }
-                clearConversionProgress(itemId);
-            });
+            logger,
+            label: name
+        });
 
         return res
             .status(200)
             .json({ success: true, msg: 'conversionStarted', itemId });
     } catch (err) {
         logger.log('error', 'finalizeConversion error', err);
-        return res
-            .status(500)
-            .json({ success: false, msg: 'conversionError' });
+        return res.status(500).json({ success: false, msg: 'conversionError' });
     }
 };
 

@@ -349,6 +349,27 @@ export type ConvertUploadResponse = {
     };
 };
 
+export type ZipPendingConvertInfo = {
+    zipJobId: string;
+    convertCount: number;
+    sample: {
+        originalName: string;
+        duration: number | null;
+        tracks: {
+            audio: ConvertTrackInfo[];
+            subtitle: ConvertTrackInfo[];
+        };
+    };
+};
+
+export type ZipUploadResponse = {
+    success: boolean;
+    count: number;
+    addedReady: { id: string; name: string }[];
+    skipped: number;
+    pendingZip: ZipPendingConvertInfo | null;
+};
+
 // Media
 
 export type MediaTypes = 'audio' | 'video' | 'stream';
