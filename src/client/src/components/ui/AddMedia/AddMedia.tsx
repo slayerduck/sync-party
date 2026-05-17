@@ -19,6 +19,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faThumbsUp } from '@fortawesome/free-regular-svg-icons';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { AddMediaTabFile } from '../AddMediaTabFile/AddMediaTabFile';
+import { AddMediaTabZip } from '../AddMediaTabZip/AddMediaTabZip';
+import { AddMediaTabConvert } from '../AddMediaTabConvert/AddMediaTabConvert';
 
 import type { Socket } from 'socket.io-client';
 import type {
@@ -157,6 +159,75 @@ export const AddMedia = ({
                 );
             }
         }
+    };
+
+    const addZipItem = async (event: React.MouseEvent): Promise<void> => {
+        event.preventDefault();
+
+        if (party && file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('partyId', party.id);
+            setIsUploading(true);
+            setAddedSuccessfully(false);
+            setUploadStartTime(Date.now());
+            try {
+                const response = await Axios.post('/api/file/zip', formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    },
+                    onUploadProgress: (progressEvent) => {
+                        const percentCompleted =
+                            progressEvent.total !== undefined
+                                ? Math.round(
+                                      (progressEvent.loaded * 100) /
+                                          progressEvent.total
+                                  )
+                                : 0;
+                        setProgress(percentCompleted);
+                    },
+                    withCredentials: true
+                });
+
+                if (response.data.success === true) {
+                    updatePartyAndUserParties();
+                    getUpdatedUserItems(dispatch, t);
+                    resetUploadForm();
+                    setLastCreatedItem({
+                        ...mediaItem,
+                        name: t('mediaMenu.zipAddedCount', {
+                            count: response.data.count
+                        })
+                    });
+                    setIsUploading(false);
+                    setAddedSuccessfully(true);
+                    hideFinishInAFewSecs();
+                    toggleCollapseAddMediaMenu();
+                } else {
+                    dispatch(
+                        setGlobalState({
+                            errorMessage: t('mediaMenu.uploadError')
+                        })
+                    );
+                }
+            } catch (error) {
+                dispatch(
+                    setGlobalState({
+                        errorMessage: t(`errors.uploadError`)
+                    })
+                );
+
+                resetUploadForm();
+                setIsUploading(false);
+                setUploadError(true);
+            }
+        }
+    };
+
+    const onConvertItemCreated = async (): Promise<void> => {
+        await updatePartyAndUserParties();
+        getUpdatedUserItems(dispatch, t);
+        toggleCollapseAddMediaMenu();
     };
 
     const addFileItem = async (event: React.MouseEvent): Promise<void> => {
@@ -389,6 +460,34 @@ export const AddMedia = ({
                                             focused: boolean
                                         ): void => setPlayerFocused(focused)}
                                     ></AddMediaTabFile>
+                                )}
+                                {activeTab === 'zip' && (
+                                    <AddMediaTabZip
+                                        file={file}
+                                        setFile={(f: File | null): void =>
+                                            setFile(f)
+                                        }
+                                        addZipItem={addZipItem}
+                                        resetUploadForm={resetUploadForm}
+                                    ></AddMediaTabZip>
+                                )}
+                                {activeTab === 'convert' && (
+                                    <AddMediaTabConvert
+                                        party={party}
+                                        onItemCreated={onConvertItemCreated}
+                                        setIsUploading={(u: boolean): void =>
+                                            setIsUploading(u)
+                                        }
+                                        setProgress={(p: number): void =>
+                                            setProgress(p)
+                                        }
+                                        setUploadStartTime={(
+                                            ts: number
+                                        ): void => setUploadStartTime(ts)}
+                                        setPlayerFocused={(
+                                            focused: boolean
+                                        ): void => setPlayerFocused(focused)}
+                                    ></AddMediaTabConvert>
                                 )}
                             </>
                         ) : !uploadError ? (

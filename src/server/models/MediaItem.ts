@@ -1,5 +1,9 @@
 import { DataTypes, Model } from 'sequelize';
-import type { IMediaItem, MediaItemType } from '../../shared/types.js';
+import type {
+    IMediaItem,
+    MediaItemSettings,
+    MediaItemType
+} from '../../shared/types.js';
 import type {
     CreationOptional,
     InferAttributes,
@@ -19,7 +23,7 @@ export class MediaItem
     declare name: string;
     declare url: string;
     declare type: MediaItemType;
-    declare settings: Record<string, never>;
+    declare settings: MediaItemSettings;
     declare createdAt: CreationOptional<Date>;
     declare updatedAt: CreationOptional<Date>;
 }

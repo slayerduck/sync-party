@@ -55,13 +55,24 @@ export type PartyMember = {
     username: string;
 };
 
+export type MediaItemStatus =
+    | 'ready'
+    | 'converting'
+    | 'failed'
+    | 'needsConversion';
+
+export type MediaItemSettings = {
+    status?: MediaItemStatus;
+    error?: string;
+};
+
 export type IMediaItem = {
     id: string;
     type: MediaItemType;
     name: string;
     owner: string;
     url: string;
-    settings: object;
+    settings: MediaItemSettings;
     createdAt: Date;
     updatedAt: Date;
 };
@@ -313,7 +324,30 @@ export type ActionMessage = {
     text: string | JSX.Element;
 };
 
-export type AddMediaTab = 'user' | 'web' | 'file';
+export type AddMediaTab = 'user' | 'web' | 'file' | 'zip' | 'convert';
+
+export type ConvertTrackInfo = {
+    index: number;
+    codec?: string;
+    language?: string;
+    title?: string;
+};
+
+export type ConvertUploadResponse = {
+    success: boolean;
+    pendingId: string;
+    originalName: string;
+    duration: number | null;
+    tracks: {
+        audio: ConvertTrackInfo[];
+        subtitle: ConvertTrackInfo[];
+    };
+    defaults: {
+        audioIndex: number | null;
+        subtitleIndex: number | null;
+        burnSubtitles: boolean;
+    };
+};
 
 // Media
 

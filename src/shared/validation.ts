@@ -9,7 +9,7 @@ const newMediaItemValidator = Joi.object({
 
 const mediaItemValidator = newMediaItemValidator.keys({
     id: Joi.string().uuid().required(),
-    settings: Joi.object({}).required(),
+    settings: Joi.object().required(),
     createdAt: Joi.date(),
     updatedAt: Joi.date()
 });

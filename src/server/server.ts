@@ -33,6 +33,8 @@ import { authenticateSocketRequest } from './middleware/socketMiddleware.js';
 
 import { authController } from './controllers/authController.js';
 import { fileController } from './controllers/fileController.js';
+import { conversionController } from './controllers/conversionController.js';
+import { zipUploadController } from './controllers/zipUploadController.js';
 import { mediaItemController } from './controllers/mediaItemController.js';
 import { userController } from './controllers/userController.js';
 import { partyController } from './controllers/partyController.js';
@@ -68,6 +70,14 @@ const rateLimiter = createRateLimiter(200);
 
 if (!fs.existsSync(path.resolve('data/uploads'))) {
     fs.mkdirSync(path.resolve('data/uploads'), { recursive: true });
+}
+
+if (!fs.existsSync(path.resolve('data/uploads/_pending'))) {
+    fs.mkdirSync(path.resolve('data/uploads/_pending'), { recursive: true });
+}
+
+if (!fs.existsSync(path.resolve('data/uploads/_unzip'))) {
+    fs.mkdirSync(path.resolve('data/uploads/_unzip'), { recursive: true });
 }
 
 if (!process.env.SERVER_PORT || !process.env.WEBSOCKETS_PORT) {
@@ -529,6 +539,30 @@ app.get('/api/file/:id', mustBeAuthenticated, async (req, res) => {
 app.post('/api/file', mustBeAuthenticated, (req, res) => {
     fileController.upload(req, res, logger);
 });
+
+app.post('/api/file/zip', mustBeAuthenticated, (req, res) => {
+    zipUploadController.uploadZipFile(req, res, logger);
+});
+
+app.post('/api/file/convert', mustBeAuthenticated, (req, res) => {
+    conversionController.uploadForConversion(req, res, logger);
+});
+
+app.post(
+    '/api/file/convert/:pendingId/finalize',
+    mustBeAuthenticated,
+    async (req, res) => {
+        await conversionController.finalizeConversion(req, res, logger);
+    }
+);
+
+app.delete(
+    '/api/file/convert/:pendingId',
+    mustBeAuthenticated,
+    (req, res) => {
+        conversionController.cancelPending(req, res);
+    }
+);
 
 // Users
 

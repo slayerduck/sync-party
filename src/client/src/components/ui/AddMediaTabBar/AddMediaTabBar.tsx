@@ -3,7 +3,9 @@ import {
     faAngleUp,
     faCloudUploadAlt,
     faUser,
-    faGlobe
+    faGlobe,
+    faFileArchive,
+    faFilm
 } from '@fortawesome/free-solid-svg-icons';
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +19,20 @@ interface Props {
     toggleCollapseAddMediaMenu: React.MouseEventHandler;
 }
 
+type TabSpec = {
+    id: AddMediaTab;
+    icon: typeof faUser;
+    titleKey: string;
+};
+
+const TABS: TabSpec[] = [
+    { id: 'user', icon: faUser, titleKey: 'mediaMenu.addUserTab' },
+    { id: 'web', icon: faGlobe, titleKey: 'mediaMenu.addWebTab' },
+    { id: 'file', icon: faCloudUploadAlt, titleKey: 'mediaMenu.addFileTab' },
+    { id: 'zip', icon: faFileArchive, titleKey: 'mediaMenu.addZipTab' },
+    { id: 'convert', icon: faFilm, titleKey: 'mediaMenu.addConvertTab' }
+];
+
 export const AddMediaTabBar = ({
     activeTab,
     changeTab,
@@ -28,63 +44,29 @@ export const AddMediaTabBar = ({
     return (
         <div className="flex flex-row mb-1 justify-between">
             <ul className="flex">
-                <li className="mr-3">
-                    <button
-                        className={
-                            'inline-block border rounded py-1 px-3 mb-2 noOutline' +
-                            (activeTab === 'user' ? ' text-black bg-white' : '')
-                        }
-                        onClick={(): void => changeTab('user')}
-                        title={t('mediaMenu.addUserTab')}
-                    >
-                        <FontAwesomeIcon
+                {TABS.map((tab) => (
+                    <li className="mr-3" key={tab.id}>
+                        <button
                             className={
-                                activeTab === 'user'
+                                'inline-block border rounded py-1 px-3 mb-2 noOutline' +
+                                (activeTab === tab.id
                                     ? ' text-black bg-white'
-                                    : ''
+                                    : '')
                             }
-                            icon={faUser}
-                        ></FontAwesomeIcon>
-                    </button>
-                </li>
-                <li className="mr-3">
-                    <button
-                        className={
-                            'inline-block border rounded py-1 px-3 mb-2 noOutline' +
-                            (activeTab === 'web' ? ' text-black bg-white' : '')
-                        }
-                        onClick={(): void => changeTab('web')}
-                        title={t('mediaMenu.addWebTab')}
-                    >
-                        <FontAwesomeIcon
-                            className={
-                                activeTab === 'web'
-                                    ? ' text-black bg-white'
-                                    : ''
-                            }
-                            icon={faGlobe}
-                        ></FontAwesomeIcon>
-                    </button>
-                </li>
-                <li className="mr-3">
-                    <button
-                        className={
-                            'inline-block border rounded py-1 px-3 mb-2 noOutline' +
-                            (activeTab === 'file' ? ' text-black bg-white' : '')
-                        }
-                        onClick={(): void => changeTab('file')}
-                        title={t('mediaMenu.addFileTab')}
-                    >
-                        <FontAwesomeIcon
-                            className={
-                                activeTab === 'file'
-                                    ? ' text-black bg-white'
-                                    : ''
-                            }
-                            icon={faCloudUploadAlt}
-                        ></FontAwesomeIcon>
-                    </button>
-                </li>
+                            onClick={(): void => changeTab(tab.id)}
+                            title={t(tab.titleKey)}
+                        >
+                            <FontAwesomeIcon
+                                className={
+                                    activeTab === tab.id
+                                        ? ' text-black bg-white'
+                                        : ''
+                                }
+                                icon={tab.icon}
+                            ></FontAwesomeIcon>
+                        </button>
+                    </li>
+                ))}
             </ul>
             <div>
                 {!isUploading && (
