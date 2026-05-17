@@ -7,7 +7,7 @@ import type { ReactElement } from 'react';
 export const DuckBackground = (): ReactElement => (
     <div
         aria-hidden="true"
-        className="pointer-events-none select-none absolute left-2 bottom-2 sm:left-6 sm:bottom-6 opacity-20"
+        className="pointer-events-none select-none absolute right-2 bottom-2 sm:right-6 sm:bottom-6 opacity-20"
         style={{ width: 180, maxWidth: '40vw' }}
     >
         <svg
