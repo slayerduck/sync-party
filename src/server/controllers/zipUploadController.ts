@@ -7,6 +7,13 @@ import { v4 as uuid } from 'uuid';
 import { MediaItem } from '../models/MediaItem.js';
 import { Party } from '../models/Party.js';
 import { updatePartyItems } from '../database/generalOperations.js';
+import {
+    probeTracks,
+    pickDefaultAudio,
+    pickDefaultSubtitle,
+    shouldBurnInByDefault,
+    runConversion
+} from '../ffmpegHelper.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -34,8 +41,12 @@ const uploadZip = multer({
     limits: { fileSize: 25000000000 }
 }).single('file');
 
-const MEDIA_EXT_RE = /\.(mp4|m4v|mkv|avi|webm|mov|mp3|wav|flac|m4a|aac|ogg)$/i;
+const MEDIA_EXT_RE =
+    /\.(mp4|m4v|mkv|avi|webm|mov|ts|m2ts|wmv|flv|ogv|3gp|vob|mp3|wav|flac|m4a|aac|ogg)$/i;
 const PLAYABLE_EXT_RE = /\.(mp4|m4v|webm|mp3|wav|flac|m4a|aac|ogg)$/i;
+
+const stripExt = (name: string): string => name.replace(/\.[^.]+$/, '');
+const sanitize = (name: string): string => name.replace(/[^\w.\-]+/g, '_');
 
 const unzipTo = (zipPath: string, destDir: string): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -130,70 +141,223 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                 // best effort
             }
             rmDirSafe(extractDir);
-            return res
-                .status(500)
-                .json({ success: false, msg: 'unzipError' });
+            return res.status(500).json({ success: false, msg: 'unzipError' });
         }
 
-        const files = walkFiles(extractDir).filter((f) =>
-            MEDIA_EXT_RE.test(f)
-        );
+        const files = walkFiles(extractDir).filter((f) => MEDIA_EXT_RE.test(f));
 
-        const created: { id: string; name: string; needsConversion: boolean }[] =
-            [];
+        const created: {
+            id: string;
+            name: string;
+            needsConversion: boolean;
+        }[] = [];
         const errors: string[] = [];
+
+        const uploadsDir = path.resolve('data/uploads');
+        ensureDir(zipPendingDir());
 
         for (const src of files) {
             const originalName = path.basename(src);
+            const displayName = stripExt(originalName) || originalName;
             const itemId = uuid();
-            const safeName = originalName.replace(/[^\w.\-]+/g, '_');
-            const destFilename = `${itemId}-${safeName}`;
-            const destPath = path.join(
-                path.resolve('data/uploads'),
-                destFilename
-            );
-
-            try {
-                fs.renameSync(src, destPath);
-            } catch {
-                // Fallback to copy across filesystems.
-                try {
-                    fs.copyFileSync(src, destPath);
-                    fs.unlinkSync(src);
-                } catch (copyErr) {
-                    errors.push(String(copyErr));
-                    continue;
-                }
-            }
-
+            const safeName = sanitize(originalName);
+            const safeBase = sanitize(stripExt(originalName) || originalName);
             const needsConversion = !PLAYABLE_EXT_RE.test(originalName);
 
-            const newItem: CreationAttributes<MediaItem> = {
-                id: itemId,
-                type: 'file',
-                owner: req.user.id,
-                name: originalName,
-                url: destFilename,
-                settings: needsConversion
-                    ? { status: 'needsConversion' }
-                    : { status: 'ready' }
-            };
-
-            try {
-                const dbItem = await MediaItem.create(newItem);
-                await updatePartyItems(party.id, dbItem.id);
-                created.push({
-                    id: dbItem.id,
-                    name: originalName,
-                    needsConversion
-                });
-            } catch (dbErr) {
-                logger.log('error', 'Failed to insert zip item', dbErr);
-                errors.push(String(dbErr));
+            if (needsConversion) {
+                // Move into the pending directory; we'll re-encode to mp4 in
+                // the uploads directory and remove the source on success.
+                const pendingPath = path.join(
+                    zipPendingDir(),
+                    `${itemId}-${safeName}`
+                );
                 try {
-                    fs.unlinkSync(destPath);
+                    fs.renameSync(src, pendingPath);
                 } catch {
-                    // best effort
+                    try {
+                        fs.copyFileSync(src, pendingPath);
+                        fs.unlinkSync(src);
+                    } catch (copyErr) {
+                        errors.push(String(copyErr));
+                        continue;
+                    }
+                }
+
+                let probed;
+                try {
+                    probed = await probeTracks(pendingPath);
+                } catch (probeErr) {
+                    logger.log('error', 'probe failed for zip item', probeErr);
+                    errors.push(String(probeErr));
+                    try {
+                        fs.unlinkSync(pendingPath);
+                    } catch {
+                        // best effort
+                    }
+                    continue;
+                }
+
+                const defaultAudio = pickDefaultAudio(probed.audio);
+                const defaultSub = pickDefaultSubtitle(probed.subtitle);
+                const burn =
+                    shouldBurnInByDefault(defaultAudio) && defaultSub !== null;
+
+                if (!defaultAudio) {
+                    logger.log(
+                        'warn',
+                        `Skipping ${originalName}: no audio track`
+                    );
+                    try {
+                        fs.unlinkSync(pendingPath);
+                    } catch {
+                        // best effort
+                    }
+                    errors.push(`${originalName}: no audio track`);
+                    continue;
+                }
+
+                const outputFilename = `${itemId}-${safeBase}.mp4`;
+                const outputPath = path.join(uploadsDir, outputFilename);
+
+                const newItem: CreationAttributes<MediaItem> = {
+                    id: itemId,
+                    type: 'file',
+                    owner: req.user.id,
+                    name: displayName,
+                    url: outputFilename,
+                    settings: { status: 'converting' }
+                };
+
+                try {
+                    const dbItem = await MediaItem.create(newItem);
+                    await updatePartyItems(party.id, dbItem.id);
+                    created.push({
+                        id: dbItem.id,
+                        name: displayName,
+                        needsConversion: true
+                    });
+                } catch (dbErr) {
+                    logger.log('error', 'Failed to insert zip item', dbErr);
+                    errors.push(String(dbErr));
+                    try {
+                        fs.unlinkSync(pendingPath);
+                    } catch {
+                        // best effort
+                    }
+                    continue;
+                }
+
+                const subOrdinal = defaultSub
+                    ? probed.subtitle.findIndex(
+                          (t) => t.index === defaultSub.index
+                      )
+                    : null;
+
+                runConversion({
+                    inputPath: pendingPath,
+                    outputPath,
+                    audioStreamIndex: defaultAudio.index,
+                    subtitleStreamIndex: burn
+                        ? null
+                        : defaultSub
+                        ? defaultSub.index
+                        : null,
+                    subtitleOrdinal: burn ? subOrdinal : null,
+                    burnSubtitles: burn
+                })
+                    .then(async () => {
+                        try {
+                            await MediaItem.update(
+                                { settings: { status: 'ready' } },
+                                { where: { id: itemId } }
+                            );
+                        } catch (updErr) {
+                            logger.log(
+                                'error',
+                                'Failed to mark zip conversion ready',
+                                updErr
+                            );
+                        }
+                        try {
+                            if (fs.existsSync(pendingPath))
+                                fs.unlinkSync(pendingPath);
+                        } catch {
+                            // best effort
+                        }
+                    })
+                    .catch(async (convErr) => {
+                        logger.log(
+                            'error',
+                            `Conversion failed for ${originalName}`,
+                            convErr
+                        );
+                        try {
+                            await MediaItem.update(
+                                {
+                                    settings: {
+                                        status: 'failed',
+                                        error: String(convErr).slice(0, 500)
+                                    }
+                                },
+                                { where: { id: itemId } }
+                            );
+                        } catch {
+                            // already logged
+                        }
+                        try {
+                            if (fs.existsSync(outputPath))
+                                fs.unlinkSync(outputPath);
+                        } catch {
+                            // best effort
+                        }
+                        try {
+                            if (fs.existsSync(pendingPath))
+                                fs.unlinkSync(pendingPath);
+                        } catch {
+                            // best effort
+                        }
+                    });
+            } else {
+                const destFilename = `${itemId}-${safeName}`;
+                const destPath = path.join(uploadsDir, destFilename);
+
+                try {
+                    fs.renameSync(src, destPath);
+                } catch {
+                    try {
+                        fs.copyFileSync(src, destPath);
+                        fs.unlinkSync(src);
+                    } catch (copyErr) {
+                        errors.push(String(copyErr));
+                        continue;
+                    }
+                }
+
+                const newItem: CreationAttributes<MediaItem> = {
+                    id: itemId,
+                    type: 'file',
+                    owner: req.user.id,
+                    name: displayName,
+                    url: destFilename,
+                    settings: { status: 'ready' }
+                };
+
+                try {
+                    const dbItem = await MediaItem.create(newItem);
+                    await updatePartyItems(party.id, dbItem.id);
+                    created.push({
+                        id: dbItem.id,
+                        name: displayName,
+                        needsConversion: false
+                    });
+                } catch (dbErr) {
+                    logger.log('error', 'Failed to insert zip item', dbErr);
+                    errors.push(String(dbErr));
+                    try {
+                        fs.unlinkSync(destPath);
+                    } catch {
+                        // best effort
+                    }
                 }
             }
         }
@@ -205,9 +369,12 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
             // best effort
         }
 
+        const converting = created.filter((c) => c.needsConversion).length;
+
         return res.status(200).json({
             success: true,
             count: created.length,
+            converting,
             items: created,
             skipped: errors.length
         });

@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { ButtonIcon } from '../../input/ButtonIcon/ButtonIcon';
 import { Avatar } from '../../display/Avatar/Avatar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCog } from '@fortawesome/free-solid-svg-icons';
+import { faCog, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { useDispatch } from 'react-redux';
 import { setGlobalState } from '../../../actions/globalActions';
 
@@ -28,66 +27,106 @@ export const PartyTile = ({
 }: Props): ReactElement => {
     const dispatch = useDispatch();
     const { t } = useTranslation();
+    const isActive = userParty.status === 'active';
+    const canJoin = isActive || user.role === 'admin';
+
+    const onClick = (): void => {
+        if (canJoin) {
+            handlePartyChoose(userParty);
+        } else {
+            dispatch(
+                setGlobalState({
+                    errorMessage: t(`errors.joinInactivePartyError`)
+                })
+            );
+        }
+    };
 
     return (
         <div
-            className="w-40 h-40 p-2 mr-2 my-2 bg-gray-800 hover:bg-gray-700 cursor-pointer"
-            key={userParty.id}
-            onClick={(): void => {
-                if (userParty.status === 'active' || user.role === 'admin') {
-                    handlePartyChoose(userParty);
-                } else {
-                    dispatch(
-                        setGlobalState({
-                            errorMessage: t(`errors.joinInactivePartyError`)
-                        })
-                    );
+            role="button"
+            tabIndex={0}
+            onClick={onClick}
+            onKeyDown={(e): void => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick();
                 }
             }}
             title={t('dashboard.partyTileTitle')}
+            className={
+                'group relative flex flex-col rounded-xl border bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20 p-4 transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-lg hover:shadow-purple-900/20 ' +
+                (canJoin ? '' : 'opacity-70')
+            }
         >
-            <div className="flex flex-row justify-between">
-                <div
+            <div className="flex items-center justify-between mb-3">
+                <span
                     className={
-                        'mb-1 text-xs' +
-                        (userParty.status === 'active'
-                            ? ' text-green-500'
-                            : ' text-red-600')
+                        'inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ' +
+                        (isActive
+                            ? 'bg-green-500/15 text-green-400 border border-green-500/30'
+                            : 'bg-red-500/15 text-red-400 border border-red-500/30')
                     }
                 >
-                    {userParty.status === 'active'
+                    <span
+                        className={
+                            'w-1.5 h-1.5 rounded-full ' +
+                            (isActive ? 'bg-green-400' : 'bg-red-400')
+                        }
+                    ></span>
+                    {isActive
                         ? t('common.statusActive')
                         : t('common.statusStopped')}
-                </div>
+                </span>
                 {user.role === 'admin' && (
-                    <div>
-                        <ButtonIcon
-                            color="text-gray-200 z-50"
-                            icon={
-                                <FontAwesomeIcon icon={faCog}></FontAwesomeIcon>
-                            }
-                            title={t('dashboard.editPartyTitle')}
-                            onClick={(event): void => {
-                                event.stopPropagation();
-                                setRedirectToPartySettings(userParty.id);
-                            }}
-                        ></ButtonIcon>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={(event): void => {
+                            event.stopPropagation();
+                            setRedirectToPartySettings(userParty.id);
+                        }}
+                        title={t('dashboard.editPartyTitle')}
+                        className="text-gray-400 hover:text-gray-100 p-1 rounded transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    >
+                        <FontAwesomeIcon icon={faCog} />
+                    </button>
                 )}
             </div>
-            <div className="mb-1">{userParty.name}</div>
-            <div className="flex flex-row flex-wrap">
-                {userParty.members.map((member: PartyMember) => {
-                    return (
-                        <Avatar
-                            key={member.username}
-                            size={8}
-                            fontSize={'text-sm'}
-                            username={member.username}
-                            user={user}
-                        ></Avatar>
-                    );
-                })}
+
+            <div className="flex-1 mb-3 min-h-[1.5rem]">
+                <div className="font-medium text-gray-100 truncate">
+                    {userParty.name}
+                </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+                <div className="flex -space-x-1.5">
+                    {userParty.members
+                        .slice(0, 6)
+                        .map((member: PartyMember) => (
+                            <div
+                                key={member.username}
+                                className="ring-2 ring-[#0a0a0f] rounded-full"
+                            >
+                                <Avatar
+                                    size={8}
+                                    fontSize={'text-xs'}
+                                    username={member.username}
+                                    user={user}
+                                />
+                            </div>
+                        ))}
+                    {userParty.members.length > 6 && (
+                        <div className="ring-2 ring-[#0a0a0f] rounded-full bg-gray-700 w-8 h-8 flex items-center justify-center text-xs text-gray-200">
+                            +{userParty.members.length - 6}
+                        </div>
+                    )}
+                </div>
+                <FontAwesomeIcon
+                    icon={faPlay}
+                    className="text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    size="sm"
+                />
             </div>
         </div>
     );

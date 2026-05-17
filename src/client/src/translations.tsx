@@ -71,6 +71,8 @@ export const translations = {
                 invalidZipFile: 'Please select a .zip archive.',
                 uploadZipLabel: 'Upload zip',
                 zipAddedCount: '{{count}} files added from zip',
+                zipAddedWithConverting:
+                    '{{count}} files added from zip ({{converting}} converting)',
                 addConvertTab: 'Upload a file to convert (mkv, etc.)',
                 addConvertDragDrop:
                     'Drag & drop a non-mp4 video here to convert',
@@ -128,10 +130,14 @@ export const translations = {
                 fullscreen: 'Toggle videochat fullscreen'
             },
             dashboard: {
-                newParty: 'New Party',
+                greeting: 'Hi, {{name}}',
+                subheading:
+                    'Pick a party to join, or spin up a new one to get watching.',
+                newParty: 'Create a new party',
                 yourParties: 'Your Parties',
                 partyTileTitle: 'Click to join the party',
-                noParties: 'Nothing there.',
+                noParties:
+                    "You're not in any parties yet. Create one above to get started.",
                 allMedia: 'All media',
                 yourMedia: 'Your media',
                 editPartyTitle: 'Edit Party',

@@ -193,11 +193,18 @@ export const AddMedia = ({
                     updatePartyAndUserParties();
                     getUpdatedUserItems(dispatch, t);
                     resetUploadForm();
+                    const converting = response.data.converting || 0;
                     setLastCreatedItem({
                         ...mediaItem,
-                        name: t('mediaMenu.zipAddedCount', {
-                            count: response.data.count
-                        })
+                        name:
+                            converting > 0
+                                ? t('mediaMenu.zipAddedWithConverting', {
+                                      count: response.data.count,
+                                      converting
+                                  })
+                                : t('mediaMenu.zipAddedCount', {
+                                      count: response.data.count
+                                  })
                     });
                     setIsUploading(false);
                     setAddedSuccessfully(true);
