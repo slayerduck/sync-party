@@ -45,6 +45,13 @@ Demo video: https://www.youtube.com/watch?v=6t5-cAwSfjk
 ## Supported media sources
 
 -   Uploaded video or audio files (`.mp4`, `.mp3`, `.m4a`, `.flac` etc.)
+-   Zip archives containing multiple media files (each file inside the
+    zip is added as its own item)
+-   Non-mp4 video formats (`.mkv`, `.avi`, `.mov`, `.ts`, ...) uploaded
+    through the "Convert" tab — the server transcodes them to `.mp4`
+    via ffmpeg after you pick which audio and subtitle tracks to keep.
+    Defaults: audio prefers Japanese, then English; subtitles default
+    to burn-in unless the chosen audio is English.
 -   YouTube
 -   Vimeo
 -   SoundCloud
@@ -66,6 +73,14 @@ As this application is self-hosted, your & your friends' data stays as private a
 -   Node.js >= 18
 -   pm2 globally installed
 -   SSL certificate (e.g. Let's Encrypt)
+-   `ffmpeg` and `ffprobe` on `PATH` (used by the "Convert" upload tab
+    to probe and transcode non-mp4 files). On Debian/Ubuntu:
+    `sudo apt install ffmpeg`. Subtitle burn-in additionally requires
+    an ffmpeg built with `libass` support, which the stock package
+    ships with.
+-   `unzip` on `PATH` (used by the "Zip" upload tab to extract
+    archives). Pre-installed on most distros; on Debian/Ubuntu:
+    `sudo apt install unzip`.
 
 ### Setup
 
@@ -188,6 +203,11 @@ You can run the following commands with a **preceding space**, preventing the pa
 
 ## Changelog
 
+-   0.15.0: Upload limits raised to 25 GB; add zip archive uploads;
+    add ffmpeg-backed conversion uploads for non-mp4 formats with an
+    audio/subtitle track picker (default audio: ja → en; burn-in subs
+    by default unless the chosen audio is English). Requires `ffmpeg`,
+    `ffprobe`, and `unzip` on the server's `PATH`.
 -   0.13.0: [breaking] Remove TSFS again :)
 -   0.12.0: [breaking] Use my TSFS framework; get rid of Create React App; unify into one npm project
 -   0.9.0: [breaking] Simplify setup
