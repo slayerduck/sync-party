@@ -107,7 +107,7 @@ As this application is self-hosted, your & your friends' data stays as private a
         proxy_set_header Host $host;
     }
 
-    client_max_body_size 2048M;
+    client_max_body_size 25G;
     proxy_connect_timeout 600;
     proxy_send_timeout 600;
     proxy_read_timeout 600;

@@ -27,7 +27,7 @@ const multerFileValidator = Joi.object({
     destination: Joi.string().required(),
     filename: Joi.string().required(),
     path: Joi.string().required(),
-    size: Joi.number().max(3000000000).required()
+    size: Joi.number().max(25000000000).required()
 });
 
 const newPartyValidator = Joi.object({
