@@ -475,15 +475,6 @@ export const AddMedia = ({
                                     <AddMediaTabConvert
                                         party={party}
                                         onItemCreated={onConvertItemCreated}
-                                        setIsUploading={(u: boolean): void =>
-                                            setIsUploading(u)
-                                        }
-                                        setProgress={(p: number): void =>
-                                            setProgress(p)
-                                        }
-                                        setUploadStartTime={(
-                                            ts: number
-                                        ): void => setUploadStartTime(ts)}
                                         setPlayerFocused={(
                                             focused: boolean
                                         ): void => setPlayerFocused(focused)}

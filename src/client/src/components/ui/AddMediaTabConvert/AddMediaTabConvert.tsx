@@ -18,9 +18,6 @@ import type {
 interface Props {
     party: ClientParty;
     onItemCreated: () => Promise<void>;
-    setIsUploading: (uploading: boolean) => void;
-    setProgress: (progress: number) => void;
-    setUploadStartTime: (ts: number) => void;
     setPlayerFocused: (focused: boolean) => void;
 }
 
@@ -38,9 +35,6 @@ const describeTrack = (t: ConvertTrackInfo, fallbackLabel: string): string => {
 export const AddMediaTabConvert = ({
     party,
     onItemCreated,
-    setIsUploading,
-    setProgress,
-    setUploadStartTime,
     setPlayerFocused
 }: Props): ReactElement => {
     const { t } = useTranslation();
@@ -48,6 +42,7 @@ export const AddMediaTabConvert = ({
 
     const [file, setFile] = useState<File | null>(null);
     const [isProbing, setIsProbing] = useState(false);
+    const [progress, setProgress] = useState(0);
     const [probed, setProbed] = useState<ConvertUploadResponse | null>(null);
     const [name, setName] = useState('');
     const [audioIndex, setAudioIndex] = useState<number | null>(null);
@@ -88,8 +83,6 @@ export const AddMediaTabConvert = ({
         formData.append('file', file);
 
         setIsProbing(true);
-        setIsUploading(true);
-        setUploadStartTime(Date.now());
         setProgress(0);
 
         try {
@@ -129,7 +122,6 @@ export const AddMediaTabConvert = ({
             dispatch(setGlobalState({ errorMessage: t('errors.uploadError') }));
         } finally {
             setIsProbing(false);
-            setIsUploading(false);
         }
     };
 
@@ -327,6 +319,15 @@ export const AddMediaTabConvert = ({
             {file && (
                 <>
                     <div className="mb-3 truncate">{file.name}</div>
+                    {isProbing && (
+                        <div className="mb-3 text-sm text-gray-300">
+                            {progress < 100
+                                ? `${t(
+                                      'mediaMenu.uploadingLabel'
+                                  )} ${progress}%`
+                                : t('mediaMenu.probingLabel')}
+                        </div>
+                    )}
                     <Button
                         onClick={(): void => setFile(null)}
                         className="mt-1 mb-2 mr-2"

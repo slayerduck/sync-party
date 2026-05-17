@@ -78,6 +78,7 @@ export const translations = {
                 invalidConvertFile:
                     'Choose a non-mp4 video (mkv, avi, mov, etc.).',
                 uploadingLabel: 'Uploading...',
+                probingLabel: 'Probing tracks...',
                 probeError: 'Could not probe the uploaded file.',
                 convertAudioTrack: 'Audio track',
                 convertSubtitleTrack: 'Subtitle track',
