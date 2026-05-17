@@ -6,6 +6,7 @@ import {
     newMediaItemValidator
 } from '../../shared/validation.js';
 import { MediaItem } from '../models/MediaItem.js';
+import { cancelActiveConversion } from '../conversionProgress.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -176,9 +177,18 @@ const deleteMediaItem = async (req: Request, res: Response, logger: Logger) => {
 
         if (item.owner === requestUser.id || requestUser.role === 'admin') {
             if (item.type === 'file') {
-                fs.unlinkSync(
-                    path.join(path.resolve('data/uploads'), item.url)
-                );
+                // If a conversion is still running for this item, kill the
+                // ffmpeg process and remove the pending source + any partial
+                // output before we touch the final url path.
+                cancelActiveConversion(item.id);
+                try {
+                    fs.unlinkSync(
+                        path.join(path.resolve('data/uploads'), item.url)
+                    );
+                } catch {
+                    // File may not exist yet (e.g. conversion canceled
+                    // before ffmpeg wrote the output). Best effort.
+                }
             }
 
             item.destroy();

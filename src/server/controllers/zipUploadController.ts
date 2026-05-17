@@ -16,7 +16,9 @@ import {
 } from '../ffmpegHelper.js';
 import {
     setConversionProgress,
-    clearConversionProgress
+    clearConversionProgress,
+    registerActiveConversion,
+    unregisterActiveConversion
 } from '../conversionProgress.js';
 
 import type { Request, Response } from 'express';
@@ -273,9 +275,16 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                     videoInfo: probed.video,
                     audioInfo: defaultAudio,
                     duration: probed.duration,
-                    onProgress: (pct) => setConversionProgress(itemId, pct)
+                    onProgress: (pct) => setConversionProgress(itemId, pct),
+                    onSpawn: (proc) =>
+                        registerActiveConversion(itemId, {
+                            proc,
+                            sourcePath: pendingPath,
+                            outputPath
+                        })
                 })
                     .then(async () => {
+                        unregisterActiveConversion(itemId);
                         try {
                             await MediaItem.update(
                                 { settings: { status: 'ready' } },
@@ -300,6 +309,7 @@ const uploadZipFile = (req: Request, res: Response, logger: Logger) => {
                         );
                     })
                     .catch(async (convErr) => {
+                        unregisterActiveConversion(itemId);
                         logger.log(
                             'error',
                             `Conversion failed for ${originalName}`,

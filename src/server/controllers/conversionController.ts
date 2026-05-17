@@ -15,7 +15,9 @@ import {
 } from '../ffmpegHelper.js';
 import {
     setConversionProgress,
-    clearConversionProgress
+    clearConversionProgress,
+    registerActiveConversion,
+    unregisterActiveConversion
 } from '../conversionProgress.js';
 
 import type { Request, Response } from 'express';
@@ -265,9 +267,16 @@ const finalizeConversion = async (
             videoInfo: entry.video,
             audioInfo: audioTrack,
             duration: entry.duration,
-            onProgress: (pct) => setConversionProgress(itemId, pct)
+            onProgress: (pct) => setConversionProgress(itemId, pct),
+            onSpawn: (proc) =>
+                registerActiveConversion(itemId, {
+                    proc,
+                    sourcePath,
+                    outputPath
+                })
         })
             .then(async () => {
+                unregisterActiveConversion(itemId);
                 try {
                     await MediaItem.update(
                         { settings: { status: 'ready' } },
@@ -288,6 +297,7 @@ const finalizeConversion = async (
                 setTimeout(() => clearConversionProgress(itemId), 5000);
             })
             .catch(async (convErr) => {
+                unregisterActiveConversion(itemId);
                 logger.log('error', 'Conversion failed', convErr);
                 try {
                     await MediaItem.update(

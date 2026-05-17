@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
 
 export type TrackInfo = {
     index: number;
@@ -198,6 +199,9 @@ export type ConversionOptions = {
     duration?: number;
     // Called with 0..100 as ffmpeg makes progress.
     onProgress?: (percent: number) => void;
+    // Invoked right after the ffmpeg child process is spawned; lets the
+    // caller register the process so it can be killed externally.
+    onSpawn?: (proc: ChildProcess) => void;
 };
 
 export const runConversion = (opts: ConversionOptions): Promise<void> => {
@@ -277,6 +281,7 @@ export const runConversion = (opts: ConversionOptions): Promise<void> => {
         // Run ffmpeg at a low CPU priority so a long encode doesn't starve
         // the rest of the server.
         const proc = spawn('nice', ['-n', '19', 'ffmpeg', ...args]);
+        opts.onSpawn?.(proc);
 
         let stderr = '';
         let stdoutBuf = '';
