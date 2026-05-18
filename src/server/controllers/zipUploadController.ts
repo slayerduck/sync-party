@@ -9,6 +9,10 @@ import { Party } from '../models/Party.js';
 import { updatePartyItems } from '../database/generalOperations.js';
 import { probeTracks } from '../ffmpegHelper.js';
 import { queueConversion } from '../conversionRunner.js';
+import {
+    registerFailedConversion,
+    listFailedConversions
+} from '../failedConversionRegistry.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -461,7 +465,21 @@ const finalizeZipConversions = async (
             audioInfo: audioTrack,
             duration: c.probed.duration,
             logger,
-            label: c.originalName
+            label: c.originalName,
+            onFailure: ({ errorMessage, logFile }) => {
+                registerFailedConversion({
+                    itemId: c.itemId,
+                    partyId: party.id,
+                    originalName: c.originalName,
+                    displayName: c.displayName,
+                    sourcePath: c.pendingPath,
+                    outputPath: c.outputPath,
+                    probed: c.probed,
+                    errorMessage,
+                    logFile,
+                    failedAt: Date.now()
+                });
+            }
         });
     }
 
@@ -546,7 +564,39 @@ const listPendingZipJobs = async (
         });
     }
 
-    return res.status(200).json({ success: true, jobs });
+    const failed: {
+        itemId: string;
+        partyId: string;
+        partyName: string;
+        originalName: string;
+        displayName: string;
+        errorMessage: string;
+        logFile?: string;
+        failedAt: number;
+        tracks: {
+            audio: ReturnType<typeof trackInfoForResponse>[];
+            subtitle: ReturnType<typeof trackInfoForResponse>[];
+        };
+    }[] = [];
+
+    for (const entry of listFailedConversions()) {
+        failed.push({
+            itemId: entry.itemId,
+            partyId: entry.partyId,
+            partyName: await partyName(entry.partyId),
+            originalName: entry.originalName,
+            displayName: entry.displayName,
+            errorMessage: entry.errorMessage,
+            logFile: entry.logFile,
+            failedAt: entry.failedAt,
+            tracks: {
+                audio: entry.probed.audio.map(trackInfoForResponse),
+                subtitle: entry.probed.subtitle.map(trackInfoForResponse)
+            }
+        });
+    }
+
+    return res.status(200).json({ success: true, jobs, failed });
 };
 
 export const zipUploadController = {

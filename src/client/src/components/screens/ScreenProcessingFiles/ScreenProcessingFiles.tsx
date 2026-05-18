@@ -12,11 +12,17 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faArrowLeft,
     faSpinner,
-    faFolderOpen
+    faFolderOpen,
+    faTriangleExclamation
 } from '@fortawesome/free-solid-svg-icons';
 
 import type { ReactElement } from 'react';
 import type { ConvertTrackInfo } from '../../../../../shared/types';
+
+type Tracks = {
+    audio: ConvertTrackInfo[];
+    subtitle: ConvertTrackInfo[];
+};
 
 type PendingJob = {
     zipJobId: string;
@@ -26,11 +32,20 @@ type PendingJob = {
     sample: {
         originalName: string;
         duration: number | null;
-        tracks: {
-            audio: ConvertTrackInfo[];
-            subtitle: ConvertTrackInfo[];
-        };
+        tracks: Tracks;
     };
+};
+
+type FailedJob = {
+    itemId: string;
+    partyId: string;
+    partyName: string;
+    originalName: string;
+    displayName: string;
+    errorMessage: string;
+    logFile?: string;
+    failedAt: number;
+    tracks: Tracks;
 };
 
 export const ScreenProcessingFiles = (): ReactElement => {
@@ -39,13 +54,15 @@ export const ScreenProcessingFiles = (): ReactElement => {
     const [redirectHome, setRedirectHome] = useState(false);
     const [loading, setLoading] = useState(true);
     const [jobs, setJobs] = useState<PendingJob[]>([]);
-    const [busyJobId, setBusyJobId] = useState<string | null>(null);
+    const [failed, setFailed] = useState<FailedJob[]>([]);
+    const [busyId, setBusyId] = useState<string | null>(null);
 
     const loadJobs = useCallback(async (): Promise<void> => {
         try {
             const res = await Axios.get('/api/pendingZipJobs', axiosConfig());
             if (res.data.success) {
                 setJobs(res.data.jobs || []);
+                setFailed(res.data.failed || []);
             }
         } catch {
             dispatch(
@@ -70,7 +87,7 @@ export const ScreenProcessingFiles = (): ReactElement => {
             burnSubtitles: boolean;
         }
     ): Promise<void> => {
-        setBusyJobId(job.zipJobId);
+        setBusyId(job.zipJobId);
         try {
             const res = await Axios.post(
                 `/api/file/zip/${job.zipJobId}/finalize`,
@@ -95,25 +112,77 @@ export const ScreenProcessingFiles = (): ReactElement => {
                 })
             );
         } finally {
-            setBusyJobId(null);
+            setBusyId(null);
         }
     };
 
     const handleCancel = async (job: PendingJob): Promise<void> => {
-        setBusyJobId(job.zipJobId);
+        setBusyId(job.zipJobId);
         try {
             await Axios.delete(`/api/file/zip/${job.zipJobId}`, axiosConfig());
         } catch {
             // best effort
         } finally {
             setJobs((cur) => cur.filter((j) => j.zipJobId !== job.zipJobId));
-            setBusyJobId(null);
+            setBusyId(null);
+        }
+    };
+
+    const handleRetry = async (
+        job: FailedJob,
+        choice: {
+            audioIndex: number;
+            subtitleIndex: number | null;
+            burnSubtitles: boolean;
+        }
+    ): Promise<void> => {
+        setBusyId(job.itemId);
+        try {
+            const res = await Axios.post(
+                `/api/file/convert/retry/${job.itemId}`,
+                choice,
+                axiosConfig()
+            );
+            if (res.data.success) {
+                setFailed((cur) => cur.filter((f) => f.itemId !== job.itemId));
+            } else {
+                dispatch(
+                    setGlobalState({
+                        errorMessage: t('mediaMenu.conversionStartError')
+                    })
+                );
+            }
+        } catch {
+            dispatch(
+                setGlobalState({
+                    errorMessage: t('mediaMenu.conversionStartError')
+                })
+            );
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const handleDiscard = async (job: FailedJob): Promise<void> => {
+        setBusyId(job.itemId);
+        try {
+            await Axios.delete(
+                `/api/file/convert/failed/${job.itemId}`,
+                axiosConfig()
+            );
+        } catch {
+            // best effort
+        } finally {
+            setFailed((cur) => cur.filter((f) => f.itemId !== job.itemId));
+            setBusyId(null);
         }
     };
 
     if (redirectHome) {
         return <Navigate to={'/'}></Navigate>;
     }
+
+    const isEmpty = jobs.length === 0 && failed.length === 0;
 
     return (
         <div
@@ -146,7 +215,7 @@ export const ScreenProcessingFiles = (): ReactElement => {
                         <FontAwesomeIcon icon={faSpinner} spin />
                         {t('processing.loading')}
                     </div>
-                ) : jobs.length === 0 ? (
+                ) : isEmpty ? (
                     <div className="rounded-xl border border-dashed border-white/10 bg-white/5 p-8 text-center">
                         <FontAwesomeIcon
                             icon={faFolderOpen}
@@ -158,50 +227,130 @@ export const ScreenProcessingFiles = (): ReactElement => {
                         </p>
                     </div>
                 ) : (
-                    <div className="space-y-4">
-                        {jobs.map((job) => (
-                            <div
-                                key={job.zipJobId}
-                                className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
-                            >
-                                <div className="mb-3 flex items-baseline justify-between gap-3">
-                                    <div>
-                                        <div className="text-sm text-gray-400">
-                                            {job.partyName
-                                                ? `${t('common.party')}: ${
-                                                      job.partyName
-                                                  }`
-                                                : `${t('common.party')}: —`}
+                    <>
+                        {jobs.length > 0 && (
+                            <section className="mb-10">
+                                <h2 className="text-sm uppercase tracking-wider text-gray-400 mb-3">
+                                    {t('processing.pendingHeading')}
+                                </h2>
+                                <div className="space-y-4">
+                                    {jobs.map((job) => (
+                                        <div
+                                            key={job.zipJobId}
+                                            className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
+                                        >
+                                            <div className="mb-3">
+                                                <div className="text-sm text-gray-400">
+                                                    {job.partyName
+                                                        ? `${t(
+                                                              'common.party'
+                                                          )}: ${job.partyName}`
+                                                        : `${t(
+                                                              'common.party'
+                                                          )}: —`}
+                                                </div>
+                                                <div className="font-medium">
+                                                    {t('processing.jobTitle', {
+                                                        count: job.convertCount
+                                                    })}
+                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">
+                                                    {t(
+                                                        'processing.sampledFrom',
+                                                        {
+                                                            name: job.sample
+                                                                .originalName
+                                                        }
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <ConvertTrackPicker
+                                                tracks={job.sample.tracks}
+                                                submitLabel={t(
+                                                    'mediaMenu.startConversion'
+                                                )}
+                                                submittingLabel={t(
+                                                    'mediaMenu.startingConversion'
+                                                )}
+                                                busy={busyId === job.zipJobId}
+                                                onSubmit={(c): void => {
+                                                    handleFinalize(job, c);
+                                                }}
+                                                onCancel={(): void => {
+                                                    handleCancel(job);
+                                                }}
+                                            />
                                         </div>
-                                        <div className="font-medium">
-                                            {t('processing.jobTitle', {
-                                                count: job.convertCount
-                                            })}
-                                        </div>
-                                        <div className="text-xs text-gray-500 truncate">
-                                            {t('processing.sampledFrom', {
-                                                name: job.sample.originalName
-                                            })}
-                                        </div>
-                                    </div>
+                                    ))}
                                 </div>
-                                <ConvertTrackPicker
-                                    tracks={job.sample.tracks}
-                                    submitLabel={t('mediaMenu.startConversion')}
-                                    submittingLabel={t(
-                                        'mediaMenu.startingConversion'
-                                    )}
-                                    busy={busyJobId === job.zipJobId}
-                                    onSubmit={(c): void => {
-                                        handleFinalize(job, c);
-                                    }}
-                                    onCancel={(): void => {
-                                        handleCancel(job);
-                                    }}
-                                />
-                            </div>
-                        ))}
-                    </div>
+                            </section>
+                        )}
+
+                        {failed.length > 0 && (
+                            <section>
+                                <h2 className="text-sm uppercase tracking-wider text-gray-400 mb-3 flex items-center gap-2">
+                                    <FontAwesomeIcon
+                                        icon={faTriangleExclamation}
+                                        className="text-amber-400"
+                                    />
+                                    {t('processing.failedHeading')}
+                                </h2>
+                                <div className="space-y-4">
+                                    {failed.map((job) => (
+                                        <div
+                                            key={job.itemId}
+                                            className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5"
+                                        >
+                                            <div className="mb-3">
+                                                <div className="text-sm text-gray-400">
+                                                    {job.partyName
+                                                        ? `${t(
+                                                              'common.party'
+                                                          )}: ${job.partyName}`
+                                                        : `${t(
+                                                              'common.party'
+                                                          )}: —`}
+                                                </div>
+                                                <div className="font-medium">
+                                                    {job.displayName}
+                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">
+                                                    {job.originalName}
+                                                </div>
+                                                <div className="mt-2 text-xs text-red-300 font-mono break-words">
+                                                    {job.errorMessage}
+                                                </div>
+                                                {job.logFile && (
+                                                    <div className="mt-1 text-[10px] text-gray-500 font-mono">
+                                                        {t(
+                                                            'processing.logFile'
+                                                        )}{' '}
+                                                        {job.logFile}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <ConvertTrackPicker
+                                                tracks={job.tracks}
+                                                submitLabel={t(
+                                                    'processing.retry'
+                                                )}
+                                                submittingLabel={t(
+                                                    'mediaMenu.startingConversion'
+                                                )}
+                                                busy={busyId === job.itemId}
+                                                onSubmit={(c): void => {
+                                                    handleRetry(job, c);
+                                                }}
+                                                onCancel={(): void => {
+                                                    handleDiscard(job);
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+                    </>
                 )}
             </main>
         </div>

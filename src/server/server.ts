@@ -578,6 +578,22 @@ app.delete('/api/file/convert/:pendingId', mustBeAuthenticated, (req, res) => {
     conversionController.cancelPending(req, res);
 });
 
+app.post(
+    '/api/file/convert/retry/:itemId',
+    mustBeAuthenticated,
+    async (req, res) => {
+        await conversionController.retryFailedConversion(req, res, logger);
+    }
+);
+
+app.delete(
+    '/api/file/convert/failed/:itemId',
+    mustBeAuthenticated,
+    async (req, res) => {
+        await conversionController.discardFailedConversion(req, res);
+    }
+);
+
 app.get(
     '/api/conversionProgress/:itemId',
     mustBeAuthenticated,

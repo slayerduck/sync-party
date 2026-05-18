@@ -13,10 +13,16 @@ import {
     shouldBurnInByDefault
 } from '../ffmpegHelper.js';
 import { queueConversion } from '../conversionRunner.js';
+import {
+    registerFailedConversion,
+    getFailedConversion,
+    removeFailedConversion,
+    dropFailedConversion
+} from '../failedConversionRegistry.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
-import type { TrackInfo, VideoInfo } from '../ffmpegHelper.js';
+import type { TrackInfo, VideoInfo, ProbedTracks } from '../ffmpegHelper.js';
 
 // ---------- Multer setup (upload to _pending) ----------
 
@@ -241,6 +247,13 @@ const finalizeConversion = async (
         const sourcePath = entry.sourcePath;
         pending.delete(pendingId);
 
+        const probedSnapshot: ProbedTracks = {
+            audio: entry.tracks.audio,
+            subtitle: entry.tracks.subtitle,
+            video: entry.video,
+            duration: entry.duration
+        };
+
         queueConversion({
             itemId,
             sourcePath,
@@ -253,7 +266,21 @@ const finalizeConversion = async (
             audioInfo: audioTrack,
             duration: entry.duration,
             logger,
-            label: name
+            label: name,
+            onFailure: ({ errorMessage, logFile }) => {
+                registerFailedConversion({
+                    itemId,
+                    partyId: party.id,
+                    originalName: entry.originalName,
+                    displayName: name,
+                    sourcePath,
+                    outputPath,
+                    probed: probedSnapshot,
+                    errorMessage,
+                    logFile,
+                    failedAt: Date.now()
+                });
+            }
         });
 
         return res
@@ -283,8 +310,113 @@ const cancelPending = (req: Request, res: Response) => {
     return res.status(200).json({ success: true });
 };
 
+const retryFailedConversion = async (
+    req: Request,
+    res: Response,
+    logger: Logger
+): Promise<Response> => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, msg: 'unauthorized' });
+    }
+    const itemId = req.params.itemId;
+    const entry = getFailedConversion(itemId);
+    if (!entry) {
+        return res
+            .status(404)
+            .json({ success: false, msg: 'failedItemNotFound' });
+    }
+
+    const { audioIndex, subtitleIndex, burnSubtitles } = req.body as {
+        audioIndex: number;
+        subtitleIndex: number | null;
+        burnSubtitles: boolean;
+    };
+    if (typeof audioIndex !== 'number') {
+        return res.status(400).json({ success: false, msg: 'validationError' });
+    }
+
+    const audioTrack = entry.probed.audio.find((t) => t.index === audioIndex);
+    if (!audioTrack) {
+        return res
+            .status(400)
+            .json({ success: false, msg: 'invalidAudioTrack' });
+    }
+
+    let subAbsIndex: number | null = null;
+    let subOrdinal: number | null = null;
+    if (typeof subtitleIndex === 'number') {
+        const idx = entry.probed.subtitle.findIndex(
+            (t) => t.index === subtitleIndex
+        );
+        if (idx >= 0) {
+            subAbsIndex = subtitleIndex;
+            subOrdinal = idx;
+        }
+    }
+    const willBurn = !!burnSubtitles && subOrdinal !== null;
+
+    try {
+        await MediaItem.update(
+            { settings: { status: 'converting' } },
+            { where: { id: itemId } }
+        );
+    } catch (err) {
+        logger.log('error', 'Failed to mark retry as converting', err);
+    }
+
+    // Drop from registry now; if it fails again the runner's onFailure
+    // re-registers with the latest error.
+    removeFailedConversion(itemId);
+
+    queueConversion({
+        itemId,
+        sourcePath: entry.sourcePath,
+        outputPath: entry.outputPath,
+        audioStreamIndex: audioTrack.index,
+        subtitleStreamIndex: willBurn ? null : subAbsIndex,
+        subtitleOrdinal: willBurn ? subOrdinal : null,
+        burnSubtitles: willBurn,
+        videoInfo: entry.probed.video,
+        audioInfo: audioTrack,
+        duration: entry.probed.duration,
+        logger,
+        label: entry.originalName,
+        onFailure: ({ errorMessage, logFile }) => {
+            registerFailedConversion({
+                ...entry,
+                errorMessage,
+                logFile,
+                failedAt: Date.now()
+            });
+        }
+    });
+
+    return res
+        .status(200)
+        .json({ success: true, msg: 'conversionStarted', itemId });
+};
+
+const discardFailedConversion = async (
+    req: Request,
+    res: Response
+): Promise<Response> => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, msg: 'unauthorized' });
+    }
+    const itemId = req.params.itemId;
+    dropFailedConversion(itemId);
+    try {
+        await MediaItem.destroy({ where: { id: itemId } });
+    } catch {
+        // best effort
+    }
+    return res.status(200).json({ success: true });
+};
+
 export const conversionController = {
     uploadForConversion,
     finalizeConversion,
-    cancelPending
+    cancelPending,
+    retryFailedConversion,
+    discardFailedConversion
 };

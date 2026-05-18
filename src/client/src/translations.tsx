@@ -151,9 +151,13 @@ export const translations = {
             processing: {
                 heading: 'Processing files',
                 loading: 'Loading pending uploads…',
-                empty: 'No uploads are waiting for track selection.',
+                empty: 'Nothing to process. New zip uploads waiting for track selection and any failed conversions will appear here.',
+                pendingHeading: 'Waiting for track selection',
+                failedHeading: 'Conversion failed — retry',
                 jobTitle: '{{count}} videos waiting for track selection',
-                sampledFrom: 'Tracks sampled from "{{name}}"'
+                sampledFrom: 'Tracks sampled from "{{name}}"',
+                retry: 'Retry conversion',
+                logFile: 'Log:'
             },
             mediaItems: {
                 headingUser: 'Your Media Items',

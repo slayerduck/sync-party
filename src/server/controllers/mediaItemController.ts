@@ -7,6 +7,7 @@ import {
 } from '../../shared/validation.js';
 import { MediaItem } from '../models/MediaItem.js';
 import { cancelActiveConversion } from '../conversionProgress.js';
+import { dropFailedConversion } from '../failedConversionRegistry.js';
 
 import type { Request, Response } from 'express';
 import type { Logger } from 'winston';
@@ -181,6 +182,9 @@ const deleteMediaItem = async (req: Request, res: Response, logger: Logger) => {
                 // ffmpeg process and remove the pending source + any partial
                 // output before we touch the final url path.
                 cancelActiveConversion(item.id);
+                // If this item is a failed conversion still waiting in the
+                // retry registry, drop it and unlink the kept-around source.
+                dropFailedConversion(item.id);
                 try {
                     fs.unlinkSync(
                         path.join(path.resolve('data/uploads'), item.url)

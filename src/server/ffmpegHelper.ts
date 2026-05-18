@@ -204,6 +204,17 @@ export type ConversionOptions = {
     onSpawn?: (proc: ChildProcess) => void;
 };
 
+export class ConversionError extends Error {
+    constructor(
+        public code: number,
+        public stderr: string,
+        public args: string[]
+    ) {
+        super(`ffmpeg exited ${code}: ${stderr.trim().slice(-2000)}`);
+        this.name = 'ConversionError';
+    }
+}
+
 export const runConversion = (opts: ConversionOptions): Promise<void> => {
     return new Promise((resolve, reject) => {
         // Re-encode video whenever burning subs in, or whenever the source
@@ -322,9 +333,13 @@ export const runConversion = (opts: ConversionOptions): Promise<void> => {
                 resolve();
             } else {
                 reject(
-                    new Error(
-                        `ffmpeg exited ${code}: ${stderr.trim().slice(-2000)}`
-                    )
+                    new ConversionError(code ?? -1, stderr, [
+                        'nice',
+                        '-n',
+                        '19',
+                        'ffmpeg',
+                        ...args
+                    ])
                 );
             }
         });
