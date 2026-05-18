@@ -558,6 +558,10 @@ app.delete('/api/file/zip/:zipJobId', mustBeAuthenticated, (req, res) => {
     zipUploadController.cancelPendingZip(req, res);
 });
 
+app.get('/api/pendingZipJobs', mustBeAuthenticated, async (req, res) => {
+    await zipUploadController.listPendingZipJobs(req, res);
+});
+
 app.post('/api/file/convert', mustBeAuthenticated, (req, res) => {
     conversionController.uploadForConversion(req, res, logger);
 });
@@ -570,13 +574,9 @@ app.post(
     }
 );
 
-app.delete(
-    '/api/file/convert/:pendingId',
-    mustBeAuthenticated,
-    (req, res) => {
-        conversionController.cancelPending(req, res);
-    }
-);
+app.delete('/api/file/convert/:pendingId', mustBeAuthenticated, (req, res) => {
+    conversionController.cancelPending(req, res);
+});
 
 app.get(
     '/api/conversionProgress/:itemId',

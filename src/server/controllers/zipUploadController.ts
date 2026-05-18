@@ -370,10 +370,6 @@ const finalizeZipConversions = async (
             .status(404)
             .json({ success: false, msg: 'pendingZipNotFound' });
     }
-    if (entry.owner !== req.user.id) {
-        return res.status(403).json({ success: false, msg: 'notOwner' });
-    }
-
     const { audioIndex, subtitleIndex, burnSubtitles } = req.body as {
         audioIndex: number;
         subtitleIndex: number | null;
@@ -484,15 +480,78 @@ const cancelPendingZip = (req: Request, res: Response): Response => {
     }
     const zipJobId = req.params.zipJobId;
     const entry = pendingZips.get(zipJobId);
-    if (entry && entry.owner === req.user.id) {
+    if (entry) {
         for (const c of entry.candidates) tryUnlink(c.pendingPath);
         pendingZips.delete(zipJobId);
     }
     return res.status(200).json({ success: true });
 };
 
+// ---------- List pending phase-1 results for the processing-files page ----------
+
+const listPendingZipJobs = async (
+    req: Request,
+    res: Response
+): Promise<Response> => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, msg: 'unauthorized' });
+    }
+    sweepPendingZips();
+
+    const partyNameCache = new Map<string, string>();
+    const partyName = async (partyId: string): Promise<string> => {
+        if (partyNameCache.has(partyId)) {
+            return partyNameCache.get(partyId)!;
+        }
+        try {
+            const p = await Party.findOne({ where: { id: partyId } });
+            const name = p?.name ?? '';
+            partyNameCache.set(partyId, name);
+            return name;
+        } catch {
+            return '';
+        }
+    };
+
+    const jobs: {
+        zipJobId: string;
+        partyId: string;
+        partyName: string;
+        convertCount: number;
+        sample: {
+            originalName: string;
+            duration: number | null;
+            tracks: {
+                audio: ReturnType<typeof trackInfoForResponse>[];
+                subtitle: ReturnType<typeof trackInfoForResponse>[];
+            };
+        };
+    }[] = [];
+
+    for (const [zipJobId, entry] of pendingZips.entries()) {
+        const sample = entry.candidates[0];
+        jobs.push({
+            zipJobId,
+            partyId: entry.partyId,
+            partyName: await partyName(entry.partyId),
+            convertCount: entry.candidates.length,
+            sample: {
+                originalName: sample.originalName,
+                duration: sample.probed.duration ?? null,
+                tracks: {
+                    audio: sample.probed.audio.map(trackInfoForResponse),
+                    subtitle: sample.probed.subtitle.map(trackInfoForResponse)
+                }
+            }
+        });
+    }
+
+    return res.status(200).json({ success: true, jobs });
+};
+
 export const zipUploadController = {
     uploadZipFile,
     finalizeZipConversions,
-    cancelPendingZip
+    cancelPendingZip,
+    listPendingZipJobs
 };

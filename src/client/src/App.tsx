@@ -21,6 +21,7 @@ import { ScreenParty } from './components/screens/ScreenParty/ScreenParty';
 import { ScreenUser } from './components/screens/ScreenUser/ScreenUser';
 import { ScreenEditParty } from './components/screens/ScreenEditParty/ScreenEditParty';
 import { ScreenMediaItems } from './components/screens/ScreenMediaItems/ScreenMediaItems';
+import { ScreenProcessingFiles } from './components/screens/ScreenProcessingFiles/ScreenProcessingFiles';
 
 import type { Socket } from 'socket.io-client';
 import type { ChatMessage, RootAppState } from '../../shared/types';
@@ -150,6 +151,10 @@ export const App = (): JSX.Element => {
                             element={<ScreenMediaItems socket={socket} />}
                         />
                         <Route path="/user" element={<ScreenUser />} />
+                        <Route
+                            path="/processing"
+                            element={<ScreenProcessingFiles />}
+                        />
                         <Route
                             path="/"
                             element={<ScreenDashboard socket={socket} />}

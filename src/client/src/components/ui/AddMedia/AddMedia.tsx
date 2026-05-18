@@ -492,128 +492,147 @@ export const AddMedia = ({
         >
             {isActive && (
                 <>
-                    <AddMediaTabBar
-                        activeTab={activeTab}
-                        changeTab={changeTab}
-                        isUploading={isUploading}
-                        toggleCollapseAddMediaMenu={toggleCollapseAddMediaMenu}
-                    ></AddMediaTabBar>
-                    <div className="flex flex-col">
-                        {!isUploading && !uploadError && userItems && party ? (
-                            <>
-                                {activeTab === 'user' && (
-                                    <AddMediaTabUser
-                                        partyItemsSet={partyItemsSet}
-                                        addUserItem={addUserItem}
-                                        setPlayerFocused={(
-                                            focused: boolean
-                                        ): void => setPlayerFocused(focused)}
-                                        handleItemEditSave={handleItemEditSave}
-                                    ></AddMediaTabUser>
+                    {zipPendingConvert ? (
+                        <div>
+                            <p className="mb-2 text-gray-300 text-sm">
+                                {t('mediaMenu.zipPickTracksHint', {
+                                    count: zipPendingConvert.convertCount,
+                                    name: zipPendingConvert.sample.originalName
+                                })}
+                            </p>
+                            <ConvertTrackPicker
+                                tracks={zipPendingConvert.sample.tracks}
+                                submitLabel={t('mediaMenu.startConversion')}
+                                submittingLabel={t(
+                                    'mediaMenu.startingConversion'
                                 )}
-                                {activeTab === 'web' && (
-                                    <AddMediaTabWeb
-                                        mediaItem={mediaItem}
-                                        setMediaItem={(
-                                            mediaItem: NewMediaItem
-                                        ): void => setMediaItem(mediaItem)}
-                                        addWebItem={addWebItem}
-                                        handleLinkInput={handleLinkInput}
-                                        setPlayerFocused={(
-                                            focused: boolean
-                                        ): void => setPlayerFocused(focused)}
-                                        linkMetadata={linkMetadata}
-                                        fetchingLinkMetadata={
-                                            fetchingLinkMetadata
-                                        }
-                                    ></AddMediaTabWeb>
-                                )}
-                                {activeTab === 'file' && (
-                                    <AddMediaTabFile
-                                        file={file}
-                                        setFile={(file: File): void =>
-                                            setFile(file)
-                                        }
-                                        mediaItem={mediaItem}
-                                        setMediaItem={(
-                                            mediaItem: NewMediaItem
-                                        ): void => setMediaItem(mediaItem)}
-                                        addFileItem={addFileItem}
-                                        resetUploadForm={resetUploadForm}
-                                        setPlayerFocused={(
-                                            focused: boolean
-                                        ): void => setPlayerFocused(focused)}
-                                    ></AddMediaTabFile>
-                                )}
-                                {activeTab === 'zip' &&
-                                    (zipPendingConvert ? (
-                                        <div>
-                                            <p className="mb-2 text-gray-300 text-sm">
-                                                {t(
-                                                    'mediaMenu.zipPickTracksHint',
-                                                    {
-                                                        count: zipPendingConvert.convertCount,
-                                                        name: zipPendingConvert
-                                                            .sample.originalName
-                                                    }
-                                                )}
-                                            </p>
-                                            <ConvertTrackPicker
-                                                tracks={
-                                                    zipPendingConvert.sample
-                                                        .tracks
-                                                }
-                                                submitLabel={t(
-                                                    'mediaMenu.startConversion'
-                                                )}
-                                                submittingLabel={t(
-                                                    'mediaMenu.startingConversion'
-                                                )}
-                                                busy={finalizingZip}
-                                                onSubmit={(c): void => {
-                                                    finalizeZip(c);
-                                                }}
-                                                onCancel={(): void => {
-                                                    cancelZipPending();
-                                                }}
+                                busy={finalizingZip}
+                                onSubmit={(c): void => {
+                                    finalizeZip(c);
+                                }}
+                                onCancel={(): void => {
+                                    cancelZipPending();
+                                }}
+                                setPlayerFocused={(focused: boolean): void =>
+                                    setPlayerFocused(focused)
+                                }
+                            />
+                        </div>
+                    ) : (
+                        <>
+                            <AddMediaTabBar
+                                activeTab={activeTab}
+                                changeTab={changeTab}
+                                isUploading={isUploading}
+                                toggleCollapseAddMediaMenu={
+                                    toggleCollapseAddMediaMenu
+                                }
+                            ></AddMediaTabBar>
+                            <div className="flex flex-col">
+                                {!isUploading &&
+                                !uploadError &&
+                                userItems &&
+                                party ? (
+                                    <>
+                                        {activeTab === 'user' && (
+                                            <AddMediaTabUser
+                                                partyItemsSet={partyItemsSet}
+                                                addUserItem={addUserItem}
                                                 setPlayerFocused={(
                                                     focused: boolean
                                                 ): void =>
                                                     setPlayerFocused(focused)
                                                 }
-                                            />
-                                        </div>
-                                    ) : (
-                                        <AddMediaTabZip
-                                            file={file}
-                                            setFile={(f: File | null): void =>
-                                                setFile(f)
-                                            }
-                                            addZipItem={addZipItem}
-                                            resetUploadForm={resetUploadForm}
-                                        ></AddMediaTabZip>
-                                    ))}
-                                {activeTab === 'convert' && (
-                                    <AddMediaTabConvert
-                                        party={party}
-                                        onItemCreated={onConvertItemCreated}
-                                        setPlayerFocused={(
-                                            focused: boolean
-                                        ): void => setPlayerFocused(focused)}
-                                    ></AddMediaTabConvert>
+                                                handleItemEditSave={
+                                                    handleItemEditSave
+                                                }
+                                            ></AddMediaTabUser>
+                                        )}
+                                        {activeTab === 'web' && (
+                                            <AddMediaTabWeb
+                                                mediaItem={mediaItem}
+                                                setMediaItem={(
+                                                    mediaItem: NewMediaItem
+                                                ): void =>
+                                                    setMediaItem(mediaItem)
+                                                }
+                                                addWebItem={addWebItem}
+                                                handleLinkInput={
+                                                    handleLinkInput
+                                                }
+                                                setPlayerFocused={(
+                                                    focused: boolean
+                                                ): void =>
+                                                    setPlayerFocused(focused)
+                                                }
+                                                linkMetadata={linkMetadata}
+                                                fetchingLinkMetadata={
+                                                    fetchingLinkMetadata
+                                                }
+                                            ></AddMediaTabWeb>
+                                        )}
+                                        {activeTab === 'file' && (
+                                            <AddMediaTabFile
+                                                file={file}
+                                                setFile={(file: File): void =>
+                                                    setFile(file)
+                                                }
+                                                mediaItem={mediaItem}
+                                                setMediaItem={(
+                                                    mediaItem: NewMediaItem
+                                                ): void =>
+                                                    setMediaItem(mediaItem)
+                                                }
+                                                addFileItem={addFileItem}
+                                                resetUploadForm={
+                                                    resetUploadForm
+                                                }
+                                                setPlayerFocused={(
+                                                    focused: boolean
+                                                ): void =>
+                                                    setPlayerFocused(focused)
+                                                }
+                                            ></AddMediaTabFile>
+                                        )}
+                                        {activeTab === 'zip' && (
+                                            <AddMediaTabZip
+                                                file={file}
+                                                setFile={(
+                                                    f: File | null
+                                                ): void => setFile(f)}
+                                                addZipItem={addZipItem}
+                                                resetUploadForm={
+                                                    resetUploadForm
+                                                }
+                                            ></AddMediaTabZip>
+                                        )}
+                                        {activeTab === 'convert' && (
+                                            <AddMediaTabConvert
+                                                party={party}
+                                                onItemCreated={
+                                                    onConvertItemCreated
+                                                }
+                                                setPlayerFocused={(
+                                                    focused: boolean
+                                                ): void =>
+                                                    setPlayerFocused(focused)
+                                                }
+                                            ></AddMediaTabConvert>
+                                        )}
+                                    </>
+                                ) : !uploadError ? (
+                                    <AddMediaUploadProgress
+                                        progress={progress}
+                                        uploadStartTime={uploadStartTime}
+                                    ></AddMediaUploadProgress>
+                                ) : (
+                                    <div className="my-3">
+                                        {t('mediaMenu.uploadError')}
+                                    </div>
                                 )}
-                            </>
-                        ) : !uploadError ? (
-                            <AddMediaUploadProgress
-                                progress={progress}
-                                uploadStartTime={uploadStartTime}
-                            ></AddMediaUploadProgress>
-                        ) : (
-                            <div className="my-3">
-                                {t('mediaMenu.uploadError')}
                             </div>
-                        )}
-                    </div>
+                        </>
+                    )}
                 </>
             )}
 

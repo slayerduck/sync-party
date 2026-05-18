@@ -142,8 +142,18 @@ export const translations = {
                     "You're not in any parties yet. Create one above to get started.",
                 allMedia: 'All media',
                 yourMedia: 'Your media',
+                processingFiles: 'Processing files',
+                processingFilesTitle:
+                    'Resume audio/subtitle picks for zip uploads that are still waiting',
                 editPartyTitle: 'Edit Party',
                 createParty: 'Create'
+            },
+            processing: {
+                heading: 'Processing files',
+                loading: 'Loading pending uploads…',
+                empty: 'No uploads are waiting for track selection.',
+                jobTitle: '{{count}} videos waiting for track selection',
+                sampledFrom: 'Tracks sampled from "{{name}}"'
             },
             mediaItems: {
                 headingUser: 'Your Media Items',
@@ -189,7 +199,9 @@ export const translations = {
                 reorderError: 'Error reordering items in playlist',
                 logoutError: 'Error logging out',
                 metadataUpdateError: 'Error updating metadata',
-                joinInactivePartyError: 'You cannot join an inactive party.'
+                joinInactivePartyError: 'You cannot join an inactive party.',
+                pendingZipFetchError:
+                    'Could not load pending uploads from the server.'
             },
             alerts: {
                 yes: 'Yes',
