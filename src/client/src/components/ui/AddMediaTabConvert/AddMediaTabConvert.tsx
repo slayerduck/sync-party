@@ -21,7 +21,8 @@ interface Props {
     setPlayerFocused: (focused: boolean) => void;
 }
 
-const CONVERT_EXT_RE = /\.(mkv|avi|mov|ts|m2ts|wmv|flv|ogv|3gp|vob)$/i;
+const CONVERT_EXT_RE =
+    /\.(mp4|m4v|mkv|avi|mov|ts|m2ts|wmv|flv|ogv|3gp|vob|webm)$/i;
 
 const describeTrack = (t: ConvertTrackInfo, fallbackLabel: string): string => {
     const parts: string[] = [];

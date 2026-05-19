@@ -75,12 +75,12 @@ export const translations = {
                     '{{count}} files from zip queued for conversion',
                 zipPickTracksHint:
                     '{{count}} videos in the zip need conversion. Picked from "{{name}}". The same audio/subtitle choice will be applied to every file.',
-                addConvertTab: 'Upload a file to convert (mkv, etc.)',
+                addConvertTab: 'Upload a video to convert / normalize',
                 addConvertDragDrop:
-                    'Drag & drop a non-mp4 video here to convert',
+                    'Drag & drop a video here (mp4 will be re-encoded for normalization)',
                 addConvertUploadDialog: '(Or click to open upload dialog)',
                 invalidConvertFile:
-                    'Choose a non-mp4 video (mkv, avi, mov, etc.).',
+                    'Choose a video file (mp4, mkv, avi, mov, etc.).',
                 uploadingLabel: 'Uploading...',
                 probingLabel: 'Probing tracks...',
                 probeError: 'Could not probe the uploaded file.',

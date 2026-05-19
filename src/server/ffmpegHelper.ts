@@ -192,6 +192,10 @@ export type ConversionOptions = {
     // Required only when burnSubtitles is true.
     subtitleOrdinal: number | null;
     burnSubtitles: boolean;
+    // When true, always re-encode video and audio to the normalized
+    // target profile regardless of whether the source is already
+    // browser-safe. Used when the user explicitly chose the convert tab.
+    forceTranscode?: boolean;
     // Source-stream metadata used to decide whether to copy or transcode.
     videoInfo?: VideoInfo;
     audioInfo?: TrackInfo;
@@ -217,13 +221,18 @@ export class ConversionError extends Error {
 
 export const runConversion = (opts: ConversionOptions): Promise<void> => {
     return new Promise((resolve, reject) => {
-        // Re-encode video whenever burning subs in, or whenever the source
-        // isn't already a browser-safe h264/yuv420p baseline/main/high<=L4.1.
+        // Re-encode video whenever burning subs in, whenever the source
+        // isn't already a browser-safe h264/yuv420p baseline/main/high
+        // <= L4.1, or whenever the caller forces normalization.
         const transcodeVideo =
-            opts.burnSubtitles || !isVideoBrowserSafe(opts.videoInfo);
+            opts.burnSubtitles ||
+            opts.forceTranscode === true ||
+            !isVideoBrowserSafe(opts.videoInfo);
 
-        // Re-encode audio whenever it isn't already AAC-LC.
-        const transcodeAudio = !isAudioBrowserSafe(opts.audioInfo);
+        // Re-encode audio whenever it isn't already AAC-LC, or when the
+        // caller forces normalization.
+        const transcodeAudio =
+            opts.forceTranscode === true || !isAudioBrowserSafe(opts.audioInfo);
 
         const args: string[] = [
             '-y',

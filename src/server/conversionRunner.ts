@@ -93,6 +93,7 @@ export type QueueConversionParams = {
     subtitleStreamIndex: number | null;
     subtitleOrdinal: number | null;
     burnSubtitles: boolean;
+    forceTranscode?: boolean;
     videoInfo?: VideoInfo;
     audioInfo?: TrackInfo;
     duration?: number;
@@ -126,6 +127,7 @@ export const queueConversion = (params: QueueConversionParams): void => {
         subtitleStreamIndex,
         subtitleOrdinal,
         burnSubtitles,
+        forceTranscode,
         videoInfo,
         audioInfo,
         duration,
@@ -145,6 +147,7 @@ export const queueConversion = (params: QueueConversionParams): void => {
                 subtitleStreamIndex,
                 subtitleOrdinal,
                 burnSubtitles,
+                forceTranscode,
                 videoInfo,
                 audioInfo,
                 duration,

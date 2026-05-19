@@ -262,6 +262,9 @@ const finalizeConversion = async (
             subtitleStreamIndex: burnSubtitles ? null : subAbsoluteIndex,
             subtitleOrdinal: burnSubtitles ? subOrdinal : null,
             burnSubtitles: !!burnSubtitles && subOrdinal !== null,
+            // The convert tab always re-encodes to the normalized target,
+            // even when the source is already a browser-safe mp4.
+            forceTranscode: true,
             videoInfo: entry.video,
             audioInfo: audioTrack,
             duration: entry.duration,
@@ -376,6 +379,8 @@ const retryFailedConversion = async (
         subtitleStreamIndex: willBurn ? null : subAbsIndex,
         subtitleOrdinal: willBurn ? subOrdinal : null,
         burnSubtitles: willBurn,
+        // Retries from the convert tab keep the normalization promise.
+        forceTranscode: true,
         videoInfo: entry.probed.video,
         audioInfo: audioTrack,
         duration: entry.probed.duration,
