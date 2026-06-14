@@ -37,25 +37,46 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
     const [errorBanner, setErrorBanner] = useState<string | null>(null);
     const [audioBlocked, setAudioBlocked] = useState(false);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
     useEffect(() => {
-        const el = remoteVideoRef.current;
-        if (!el || !state.remoteStream) return;
-        if (el.srcObject !== state.remoteStream.stream) {
-            el.srcObject = state.remoteStream.stream;
+        if (!state.remoteStream) return;
+        const stream = state.remoteStream.stream;
+
+        // Picture goes to the <video>. The video element stays MUTED and is
+        // given a video-only stream so its audio path never competes with the
+        // dedicated <audio> element below (avoids double/echoing audio and the
+        // "video element silently drops a remote audio track" Chromium quirk).
+        const videoEl = remoteVideoRef.current;
+        if (videoEl) {
+            videoEl.srcObject = new MediaStream(stream.getVideoTracks());
+            videoEl.muted = true;
+            // A muted video may always autoplay; ignore rejection.
+            videoEl.play().catch(() => undefined);
         }
-        // Make sure incoming audio is actually heard. Autoplay-with-sound can
-        // be blocked by the browser; if play() is rejected, surface an
-        // "enable sound" button the user can click (a gesture unblocks it).
-        el.muted = false;
-        el.play()
-            .then(() => setAudioBlocked(false))
-            .catch(() => setAudioBlocked(true));
+
+        // Sound goes through a dedicated <audio> element. Remote WebRTC audio
+        // is reliably rendered this way, whereas a track added to an already-
+        // playing <video> often produces no sound. Autoplay-with-sound may be
+        // blocked until a user gesture, so surface an "enable sound" button
+        // when play() is rejected.
+        const audioEl = remoteAudioRef.current;
+        if (audioEl) {
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                audioEl.srcObject = new MediaStream(audioTracks);
+                audioEl.muted = false;
+                audioEl
+                    .play()
+                    .then(() => setAudioBlocked(false))
+                    .catch(() => setAudioBlocked(true));
+            }
+        }
     }, [state.remoteStream]);
 
     const enableSound = (): void => {
-        const el = remoteVideoRef.current;
+        const el = remoteAudioRef.current;
         if (!el) return;
         el.muted = false;
         el.play()
@@ -252,10 +273,17 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                                 ref={remoteVideoRef}
                                 autoPlay
                                 playsInline
+                                muted
                                 controls
                                 className="w-full max-h-[75vh] bg-black object-contain"
                             />
                         </div>
+                        {/* Dedicated sink for remote audio (see attach effect) */}
+                        <audio
+                            ref={remoteAudioRef}
+                            autoPlay
+                            className="hidden"
+                        />
                     </div>
                 )}
 
