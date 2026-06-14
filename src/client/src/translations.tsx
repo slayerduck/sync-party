@@ -151,6 +151,14 @@ export const translations = {
                 editPartyTitle: 'Edit Party',
                 createParty: 'Create'
             },
+            streaming: {
+                heading: 'Stream channel',
+                share: 'Share screen',
+                stop: 'Stop sharing',
+                someoneElseSharing: 'Someone else is sharing',
+                expand: 'Expand viewer',
+                shrink: 'Shrink viewer'
+            },
             convertUpload: {
                 heading: 'Upload & convert',
                 description:

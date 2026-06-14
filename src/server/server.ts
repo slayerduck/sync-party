@@ -114,7 +114,9 @@ try {
     await streamingSfu.init(workerCount);
     logger.log(
         'info',
-        `mediasoup SFU ready (${workerCount} worker${workerCount > 1 ? 's' : ''})`
+        `mediasoup SFU ready (${workerCount} worker${
+            workerCount > 1 ? 's' : ''
+        })`
     );
 } catch (sfuErr) {
     logger.log('error', 'mediasoup SFU failed to init', sfuErr);
@@ -426,10 +428,25 @@ io.on('connection', (socket: Socket) => {
         }
     };
 
+    // Streaming operations are gated on real party membership so a
+    // logged-in user can't tap into a party's stream by guessing its id.
+    const isPartyMember = async (partyId: string): Promise<boolean> => {
+        try {
+            const party = await Party.findOne({ where: { id: partyId } });
+            return !!party && party.members.includes(socketUserId);
+        } catch {
+            return false;
+        }
+    };
+
     socket.on(
         'streaming:join',
         async (data: { partyId: string }, cb?: unknown) => {
             try {
+                if (!(await isPartyMember(data.partyId))) {
+                    ack(cb, { ok: false, error: 'not a party member' });
+                    return;
+                }
                 const rtpCapabilities =
                     await streamingSfu.getRouterRtpCapabilities(data.partyId);
                 streamingPartyIds.add(data.partyId);
@@ -452,7 +469,11 @@ io.on('connection', (socket: Socket) => {
 
     socket.on(
         'streaming:claimStreamer',
-        (data: { partyId: string }, cb?: unknown) => {
+        async (data: { partyId: string }, cb?: unknown) => {
+            if (!(await isPartyMember(data.partyId))) {
+                ack(cb, { ok: false });
+                return;
+            }
             const ok = streamingSfu.claimStreamer(data.partyId, socketUserId);
             if (ok) {
                 io.to(data.partyId).emit('streaming:streamerChanged', {
@@ -587,10 +608,7 @@ io.on('connection', (socket: Socket) => {
 
     socket.on(
         'streaming:resumeConsumer',
-        async (
-            data: { partyId: string; consumerId: string },
-            cb?: unknown
-        ) => {
+        async (data: { partyId: string; consumerId: string }, cb?: unknown) => {
             try {
                 await streamingSfu.resumeConsumer(
                     data.partyId,

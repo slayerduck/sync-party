@@ -19,6 +19,7 @@ import { MediaMenu } from '../../ui/MediaMenu/MediaMenu';
 import { MediaPlayerOverlay } from '../MediaPlayerOverlay/MediaPlayerOverlay';
 import { ActionMessageContent } from '../../display/ActionMessageContent/ActionMessageContent';
 import { CommunicationContainer } from '../../communication/CommunicationContainer/CommunicationContainer';
+import { StreamingChannel } from '../../communication/StreamingChannel/StreamingChannel';
 import { AlertContainer } from '../../ui/AlertContainer/AlertContainer';
 
 import {
@@ -778,6 +779,13 @@ export const MediaPlayerContainer = ({ socket }: Props): JSX.Element => {
                     freezeUiVisible={freezeUiVisible}
                     handlePlayPause={handlePlayPause}
                 ></CommunicationContainer>
+            )}
+            {party && user && (
+                <StreamingChannel
+                    socket={socket}
+                    partyId={party.id}
+                    ourUserId={user.id}
+                ></StreamingChannel>
             )}
             <MediaMenu
                 socket={socket}

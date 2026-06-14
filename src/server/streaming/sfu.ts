@@ -119,9 +119,7 @@ export class StreamingSfu {
     }
 
     /** Caller fetches router caps to initialize their Device. */
-    async getRouterRtpCapabilities(
-        partyId: string
-    ): Promise<RtpCapabilities> {
+    async getRouterRtpCapabilities(partyId: string): Promise<RtpCapabilities> {
         const room = await this.getOrCreateRoom(partyId);
         return room.router.rtpCapabilities;
     }
@@ -188,8 +186,7 @@ export class StreamingSfu {
         const room = await this.getOrCreateRoom(partyId);
         const peer = this.getOrCreatePeer(room, userId);
 
-        const announcedIp =
-            process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
+        const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
         const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
 
         const transport = await room.router.createWebRtcTransport({

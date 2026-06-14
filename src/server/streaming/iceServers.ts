@@ -22,16 +22,13 @@ export type IceServer = {
  * with no credentials (works only against open relays, not real coturn).
  */
 export const buildIceServers = (userId: string): IceServer[] => {
-    const stunRaw =
-        process.env.STUN_URLS || 'stun:stun.l.google.com:19302';
+    const stunRaw = process.env.STUN_URLS || 'stun:stun.l.google.com:19302';
     const stunUrls = stunRaw
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
 
-    const servers: IceServer[] = stunUrls.length
-        ? [{ urls: stunUrls }]
-        : [];
+    const servers: IceServer[] = stunUrls.length ? [{ urls: stunUrls }] : [];
 
     const turnRaw = process.env.TURN_URLS;
     if (!turnRaw) return servers;
