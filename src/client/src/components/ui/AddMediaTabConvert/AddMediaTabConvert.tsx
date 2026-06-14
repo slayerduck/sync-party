@@ -167,7 +167,7 @@ export const AddMediaTabConvert = ({
 
     if (probed) {
         return (
-            <form>
+            <form onSubmit={(e): void => e.preventDefault()}>
                 <p className="mb-2 text-gray-300 text-sm truncate">
                     {probed.originalName}
                 </p>
@@ -281,7 +281,7 @@ export const AddMediaTabConvert = ({
     }
 
     return (
-        <form>
+        <form onSubmit={(e): void => e.preventDefault()}>
             {!file && (
                 <div className="relative h-32">
                     <div className="w-full absolute top-0 left-0 border-dashed border-4 flex dropzone">

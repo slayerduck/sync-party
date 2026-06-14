@@ -22,6 +22,7 @@ import { ScreenUser } from './components/screens/ScreenUser/ScreenUser';
 import { ScreenEditParty } from './components/screens/ScreenEditParty/ScreenEditParty';
 import { ScreenMediaItems } from './components/screens/ScreenMediaItems/ScreenMediaItems';
 import { ScreenProcessingFiles } from './components/screens/ScreenProcessingFiles/ScreenProcessingFiles';
+import { ScreenConvertUpload } from './components/screens/ScreenConvertUpload/ScreenConvertUpload';
 
 import type { Socket } from 'socket.io-client';
 import type { ChatMessage, RootAppState } from '../../shared/types';
@@ -154,6 +155,10 @@ export const App = (): JSX.Element => {
                         <Route
                             path="/processing"
                             element={<ScreenProcessingFiles />}
+                        />
+                        <Route
+                            path="/convert"
+                            element={<ScreenConvertUpload />}
                         />
                         <Route
                             path="/"

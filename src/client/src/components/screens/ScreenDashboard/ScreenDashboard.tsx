@@ -21,7 +21,8 @@ import {
     faHdd,
     faPlus,
     faUsers,
-    faSpinner
+    faSpinner,
+    faFilm
 } from '@fortawesome/free-solid-svg-icons';
 import { Navigate } from 'react-router-dom';
 
@@ -37,6 +38,7 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
     const [redirectToUser, setRedirectToUser] = useState(false);
     const [redirectToMediaItems, setRedirectToMediaItems] = useState(false);
     const [redirectToProcessing, setRedirectToProcessing] = useState(false);
+    const [redirectToConvert, setRedirectToConvert] = useState(false);
     const [redirectToPartySettings, setRedirectToPartySettings] = useState('');
     const [partyName, setPartyName] = useState('');
     const [creating, setCreating] = useState(false);
@@ -128,6 +130,10 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
 
     if (redirectToProcessing) {
         return <Navigate to={'/processing'}></Navigate>;
+    }
+
+    if (redirectToConvert) {
+        return <Navigate to={'/convert'}></Navigate>;
     }
 
     const parties = userParties || [];
@@ -281,6 +287,18 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
                             {user.role === 'admin'
                                 ? t('dashboard.allMedia')
                                 : t('dashboard.yourMedia')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(): void => setRedirectToConvert(true)}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                            title={t('dashboard.convertUploadTitle')}
+                        >
+                            <FontAwesomeIcon
+                                icon={faFilm}
+                                className="text-gray-400"
+                            />
+                            {t('dashboard.convertUpload')}
                         </button>
                         <button
                             type="button"

@@ -145,8 +145,21 @@ export const translations = {
                 processingFiles: 'Processing files',
                 processingFilesTitle:
                     'Resume audio/subtitle picks for zip uploads that are still waiting',
+                convertUpload: 'Upload & convert',
+                convertUploadTitle:
+                    'Upload a video to convert and add it to a room, without joining the player',
                 editPartyTitle: 'Edit Party',
                 createParty: 'Create'
+            },
+            convertUpload: {
+                heading: 'Upload & convert',
+                description:
+                    'Upload a video here to convert and normalize it, then add it to a room. Doing this from the dashboard avoids uploading while the player is running.',
+                targetRoom: 'Add to room',
+                noRooms: 'You are not a member of any room yet.',
+                dropHint:
+                    'Click to choose a video (mp4, mkv, avi, mov, …) — it will be re-encoded for normalization',
+                queued: 'Started converting "{{name}}". It will appear in {{party}} once it is ready.'
             },
             processing: {
                 heading: 'Processing files',

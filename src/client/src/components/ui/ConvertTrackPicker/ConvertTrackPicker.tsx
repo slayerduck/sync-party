@@ -165,8 +165,9 @@ export const ConvertTrackPicker = ({
                 text={t('mediaMenu.clearLabel')}
             ></Button>
             <Button
-                type="submit"
-                onClick={(): void => {
+                type="button"
+                onClick={(e): void => {
+                    e.preventDefault();
                     if (audioIndex === null || busy) return;
                     onSubmit({
                         audioIndex,
