@@ -181,6 +181,11 @@ export type WebRtcJoinLeaveMessage = {
 
 // ---- Screen-sharing channel (mediasoup SFU) ----
 
+// Single app-wide screenshare channel id. Any authenticated user may join
+// this channel; it is intentionally not a real party (so the party
+// membership check is bypassed for it).
+export const GLOBAL_STREAM_CHANNEL = 'global-screenshare';
+
 export type StreamingProducerInfo = {
     producerId: string;
     userId: string;

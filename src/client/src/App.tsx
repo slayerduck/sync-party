@@ -23,6 +23,7 @@ import { ScreenEditParty } from './components/screens/ScreenEditParty/ScreenEdit
 import { ScreenMediaItems } from './components/screens/ScreenMediaItems/ScreenMediaItems';
 import { ScreenProcessingFiles } from './components/screens/ScreenProcessingFiles/ScreenProcessingFiles';
 import { ScreenConvertUpload } from './components/screens/ScreenConvertUpload/ScreenConvertUpload';
+import { ScreenScreenShare } from './components/screens/ScreenScreenShare/ScreenScreenShare';
 
 import type { Socket } from 'socket.io-client';
 import type { ChatMessage, RootAppState } from '../../shared/types';
@@ -159,6 +160,10 @@ export const App = (): JSX.Element => {
                         <Route
                             path="/convert"
                             element={<ScreenConvertUpload />}
+                        />
+                        <Route
+                            path="/screenshare"
+                            element={<ScreenScreenShare socket={socket} />}
                         />
                         <Route
                             path="/"

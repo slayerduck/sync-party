@@ -40,6 +40,7 @@ import { zipUploadController } from './controllers/zipUploadController.js';
 import { getConversionProgress } from './conversionProgress.js';
 import { streamingSfu } from './streaming/sfu.js';
 import { buildIceServers } from './streaming/iceServers.js';
+import { GLOBAL_STREAM_CHANNEL } from '../shared/types.js';
 import { MediaItem } from './models/MediaItem.js';
 import { mediaItemController } from './controllers/mediaItemController.js';
 import { userController } from './controllers/userController.js';
@@ -428,8 +429,10 @@ io.on('connection', (socket: Socket) => {
         }
     };
 
-    // Streaming operations are gated on real party membership so a
-    // logged-in user can't tap into a party's stream by guessing its id.
+    // Streaming operations are gated on access: real party membership for
+    // party channels (so a logged-in user can't tap a party's stream by
+    // guessing its id), and open to any authenticated user for the single
+    // global screenshare channel.
     const isPartyMember = async (partyId: string): Promise<boolean> => {
         try {
             const party = await Party.findOne({ where: { id: partyId } });
@@ -439,13 +442,23 @@ io.on('connection', (socket: Socket) => {
         }
     };
 
+    const canAccessChannel = async (channelId: string): Promise<boolean> => {
+        if (channelId === GLOBAL_STREAM_CHANNEL) return true;
+        return isPartyMember(channelId);
+    };
+
     socket.on(
         'streaming:join',
         async (data: { partyId: string }, cb?: unknown) => {
             try {
-                if (!(await isPartyMember(data.partyId))) {
-                    ack(cb, { ok: false, error: 'not a party member' });
+                if (!(await canAccessChannel(data.partyId))) {
+                    ack(cb, { ok: false, error: 'no channel access' });
                     return;
+                }
+                // The global channel has no party room to piggyback on, so
+                // join it explicitly to receive room broadcasts.
+                if (data.partyId === GLOBAL_STREAM_CHANNEL) {
+                    socket.join(data.partyId);
                 }
                 const rtpCapabilities =
                     await streamingSfu.getRouterRtpCapabilities(data.partyId);
@@ -470,7 +483,7 @@ io.on('connection', (socket: Socket) => {
     socket.on(
         'streaming:claimStreamer',
         async (data: { partyId: string }, cb?: unknown) => {
-            if (!(await isPartyMember(data.partyId))) {
+            if (!(await canAccessChannel(data.partyId))) {
                 ack(cb, { ok: false });
                 return;
             }
@@ -627,6 +640,11 @@ io.on('connection', (socket: Socket) => {
             streamingSfu.getStreamerUserId(data.partyId) === socketUserId;
         streamingSfu.leaveRoom(data.partyId, socketUserId);
         streamingPartyIds.delete(data.partyId);
+        // The global channel was joined explicitly; leave its room so we
+        // stop receiving its broadcasts. Party rooms stay (used elsewhere).
+        if (data.partyId === GLOBAL_STREAM_CHANNEL) {
+            socket.leave(data.partyId);
+        }
         if (wasStreamer) {
             io.to(data.partyId).emit('streaming:streamerChanged', {
                 partyId: data.partyId,

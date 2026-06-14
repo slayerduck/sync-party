@@ -19,7 +19,6 @@ import { MediaMenu } from '../../ui/MediaMenu/MediaMenu';
 import { MediaPlayerOverlay } from '../MediaPlayerOverlay/MediaPlayerOverlay';
 import { ActionMessageContent } from '../../display/ActionMessageContent/ActionMessageContent';
 import { CommunicationContainer } from '../../communication/CommunicationContainer/CommunicationContainer';
-import { StreamingChannel } from '../../communication/StreamingChannel/StreamingChannel';
 import { AlertContainer } from '../../ui/AlertContainer/AlertContainer';
 
 import {
@@ -68,7 +67,7 @@ if (savedVolume) {
 export const MediaPlayerContainer = ({ socket }: Props): JSX.Element => {
     // Constants
     const uiTimeoutIntervalResolution = 500;
-    const uiTimeoutShortDelay = 5000;
+    const uiTimeoutShortDelay = 2500;
     const uiTimeoutLongDelay = 30000;
     const syncStatusIntervalDelay = 1000;
     const syncStatusIntervalTolerance = 1500;
@@ -779,13 +778,6 @@ export const MediaPlayerContainer = ({ socket }: Props): JSX.Element => {
                     freezeUiVisible={freezeUiVisible}
                     handlePlayPause={handlePlayPause}
                 ></CommunicationContainer>
-            )}
-            {party && user && (
-                <StreamingChannel
-                    socket={socket}
-                    partyId={party.id}
-                    ourUserId={user.id}
-                ></StreamingChannel>
             )}
             <MediaMenu
                 socket={socket}

@@ -22,7 +22,8 @@ import {
     faPlus,
     faUsers,
     faSpinner,
-    faFilm
+    faFilm,
+    faDesktop
 } from '@fortawesome/free-solid-svg-icons';
 import { Navigate } from 'react-router-dom';
 
@@ -39,6 +40,7 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
     const [redirectToMediaItems, setRedirectToMediaItems] = useState(false);
     const [redirectToProcessing, setRedirectToProcessing] = useState(false);
     const [redirectToConvert, setRedirectToConvert] = useState(false);
+    const [redirectToScreenShare, setRedirectToScreenShare] = useState(false);
     const [redirectToPartySettings, setRedirectToPartySettings] = useState('');
     const [partyName, setPartyName] = useState('');
     const [creating, setCreating] = useState(false);
@@ -134,6 +136,10 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
 
     if (redirectToConvert) {
         return <Navigate to={'/convert'}></Navigate>;
+    }
+
+    if (redirectToScreenShare) {
+        return <Navigate to={'/screenshare'}></Navigate>;
     }
 
     const parties = userParties || [];
@@ -311,6 +317,18 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
                                 className="text-gray-400"
                             />
                             {t('dashboard.processingFiles')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(): void => setRedirectToScreenShare(true)}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                            title={t('dashboard.screenShareTitle')}
+                        >
+                            <FontAwesomeIcon
+                                icon={faDesktop}
+                                className="text-gray-400"
+                            />
+                            {t('dashboard.screenShare')}
                         </button>
                     </div>
 

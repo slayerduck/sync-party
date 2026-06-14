@@ -1,30 +1,34 @@
 # Screen-sharing channel (mediasoup SFU)
 
-Sync Party has an in-party screen-sharing channel: one member streams
-their screen, everyone else in the party watches. It runs on the same
-single Node process via an embedded [mediasoup](https://mediasoup.org/)
-SFU — the streamer uploads once and the server fans the stream out to
-each viewer, so the streamer's upload cost does not grow with the
-number of viewers.
+Sync Party has a single app-wide screen-sharing channel: one person
+streams their screen, everyone who opens the channel watches. It runs
+on the same single Node process via an embedded
+[mediasoup](https://mediasoup.org/) SFU — the streamer uploads once and
+the server fans the stream out to each viewer, so the streamer's upload
+cost does not grow with the number of viewers.
 
-It appears automatically in the top-right of the player as a "Share
-screen" panel once you're inside a party. Only one streamer is allowed
-per party at a time; while someone is streaming, the button reads
-"Someone else is sharing" for everyone else.
+It's reached from the dashboard via the **Screen share** button (a
+dedicated `/screenshare` page), independent of the watch parties. Only
+one streamer is allowed at a time; while someone is streaming, the
+button reads "Someone else is sharing" for everyone else.
 
 ## How it fits together
 
 - **Server:** `src/server/streaming/sfu.ts` owns the mediasoup workers,
-  one `Router` per party (VP8 + Opus), and the per-user transports /
+  one `Router` per channel (VP8 + Opus), and the per-user transports /
   producers / consumers. Signaling rides the existing socket.io
   connection under the `streaming:` event namespace (see
-  `src/server/server.ts`). All streaming events verify real party
-  membership before doing anything.
+  `src/server/server.ts`). The global channel id is
+  `GLOBAL_STREAM_CHANNEL` (`src/shared/types.ts`); any authenticated
+  user may join it. (The SFU stays generic — a channel id can also be a
+  party id, gated on real party membership — but the UI only exposes the
+  single global channel.)
 - **ICE:** `GET /api/iceServers` returns the STUN/TURN list, built by
   `src/server/streaming/iceServers.ts`.
 - **Client:** `src/client/src/common/useStreamingChannel.ts` is the
   mediasoup-client hook (device, send/recv transports, produce,
-  consume). `StreamingChannel.tsx` is the in-player UI.
+  consume). `ScreenScreenShare.tsx` is the dedicated `/screenshare`
+  page.
 
 ## Required setup on the host
 

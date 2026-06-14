@@ -148,16 +148,24 @@ export const translations = {
                 convertUpload: 'Upload & convert',
                 convertUploadTitle:
                     'Upload a video to convert and add it to a room, without joining the player',
+                screenShare: 'Screen share',
+                screenShareTitle:
+                    'Open the shared screen-share channel (one streamer, everyone else watches)',
                 editPartyTitle: 'Edit Party',
                 createParty: 'Create'
             },
             streaming: {
-                heading: 'Stream channel',
+                heading: 'Screen share',
                 share: 'Share screen',
                 stop: 'Stop sharing',
                 someoneElseSharing: 'Someone else is sharing',
                 expand: 'Expand viewer',
-                shrink: 'Shrink viewer'
+                shrink: 'Shrink viewer',
+                connecting: 'Connecting…'
+            },
+            screenShare: {
+                idleHint:
+                    'No one is sharing right now. Share your screen and everyone here will see it.'
             },
             convertUpload: {
                 heading: 'Upload & convert',
