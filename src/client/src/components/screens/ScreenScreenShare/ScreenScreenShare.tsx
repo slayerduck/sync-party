@@ -222,6 +222,11 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                 {/* Streamer: our own preview + stop */}
                 {state.isStreamer && (
                     <div>
+                        {!state.audioCaptured && (
+                            <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm text-yellow-200">
+                                {t('screenShare.noAudio')}
+                            </div>
+                        )}
                         <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden mb-4">
                             <video
                                 ref={localVideoRef}

@@ -75,6 +75,8 @@ export type StreamingState = {
     sendState: string;
     /** ICE/DTLS connection state of our recv transport (when viewing). */
     recvState: string;
+    /** When streaming: did the screen capture include an audio track? */
+    audioCaptured: boolean;
 };
 
 export type StreamingControls = {
@@ -95,7 +97,8 @@ const noControls: StreamingControls = {
         socketConnected: false,
         turnConfigured: false,
         sendState: 'new',
-        recvState: 'new'
+        recvState: 'new',
+        audioCaptured: true
     },
     startSharing: () => Promise.resolve(),
     stopSharing: () => Promise.resolve()
@@ -419,12 +422,23 @@ export const useStreamingChannel = (
             throw new Error('streamer slot taken');
         }
 
-        // Get the screen capture.
+        // Get the screen capture. Cap framerate/resolution to keep the
+        // streamer's encoder load (and thus lag) down; ask for audio with
+        // processing off so system/tab audio isn't mangled (Chrome only —
+        // Firefox can't capture display audio and returns video only).
         let stream: MediaStream;
         try {
             stream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true
+                video: {
+                    frameRate: { ideal: 30, max: 30 },
+                    width: { max: 1920 },
+                    height: { max: 1080 }
+                },
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
             });
         } catch (err) {
             await emitAck<AckRes>(socket, 'streaming:releaseStreamer', {
@@ -485,10 +499,33 @@ export const useStreamingChannel = (
             }
         );
 
+        // Prefer H264 for the video producer when the browser advertises it
+        // (hardware encode); otherwise mediasoup falls back to VP8.
+        const h264Codec = deviceRef.current.rtpCapabilities.codecs?.find(
+            (c) => c.mimeType.toLowerCase() === 'video/h264'
+        );
+
         for (const track of stream.getTracks()) {
             try {
-                const producer = await transport.produce({ track });
-                producersRef.current.push(producer);
+                if (track.kind === 'video') {
+                    // Hint that this is detailed/static screen content so the
+                    // encoder favours sharpness over framerate.
+                    try {
+                        track.contentHint = 'detail';
+                    } catch {
+                        // contentHint may be read-only in some browsers
+                    }
+                    const producer = await transport.produce({
+                        track,
+                        encodings: [{ maxBitrate: 3_000_000 }],
+                        codecOptions: { videoGoogleStartBitrate: 1000 },
+                        ...(h264Codec ? { codec: h264Codec } : {})
+                    });
+                    producersRef.current.push(producer);
+                } else {
+                    const producer = await transport.produce({ track });
+                    producersRef.current.push(producer);
+                }
             } catch {
                 // ignore individual track failure; we still publish the others
             }
@@ -504,7 +541,11 @@ export const useStreamingChannel = (
             });
         }
 
-        setStateSafe({ isStreamer: true, localStream: stream });
+        setStateSafe({
+            isStreamer: true,
+            localStream: stream,
+            audioCaptured: stream.getAudioTracks().length > 0
+        });
     }, [socket, partyId, state.streamerUserId, state.isStreamer, setStateSafe]);
 
     const stopSharing = useCallback(async (): Promise<void> => {

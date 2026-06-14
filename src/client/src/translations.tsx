@@ -166,7 +166,9 @@ export const translations = {
             screenShare: {
                 idleHint:
                     'No one is sharing right now. Share your screen and everyone here will see it.',
-                diagnostics: 'Connection diagnostics'
+                diagnostics: 'Connection diagnostics',
+                noAudio:
+                    'No audio is being shared. Use Chrome (not Firefox) and tick "Share tab/system audio" in the picker to include sound.'
             },
             convertUpload: {
                 heading: 'Upload & convert',

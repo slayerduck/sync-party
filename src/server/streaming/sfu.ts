@@ -17,9 +17,23 @@ const MEDIA_CODECS: mediasoup.types.RtpCodecCapability[] = [
         clockRate: 48000,
         channels: 2
     },
+    // H264 first so browsers that can hardware-encode it prefer it over
+    // software VP8 — much lower CPU on the streamer, which is the usual
+    // cause of laggy screen share.
     {
         kind: 'video',
         preferredPayloadType: 96,
+        mimeType: 'video/H264',
+        clockRate: 90000,
+        parameters: {
+            'packetization-mode': 1,
+            'profile-level-id': '42e01f',
+            'level-asymmetry-allowed': 1
+        }
+    },
+    {
+        kind: 'video',
+        preferredPayloadType: 97,
         mimeType: 'video/VP8',
         clockRate: 90000,
         parameters: { 'x-google-start-bitrate': 1000 }
