@@ -134,6 +134,9 @@ export const useStreamingChannel = (
     const deviceRef = useRef<Device | null>(null);
     const sendTransportRef = useRef<Transport | null>(null);
     const recvTransportRef = useRef<Transport | null>(null);
+    // In-flight recv-transport creation, shared by concurrent consumers so we
+    // only ever create ONE recv transport (see ensureRecvTransport).
+    const recvTransportPromiseRef = useRef<Promise<Transport> | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
     const micStreamRef = useRef<MediaStream | null>(null);
     const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -199,39 +202,55 @@ export const useStreamingChannel = (
         setStateSafe({ remoteStream: null, remoteHasAudio: false });
     }, [setStateSafe]);
 
-    const ensureRecvTransport = useCallback(async (): Promise<Transport> => {
-        if (recvTransportRef.current) return recvTransportRef.current;
-        if (!socket || !partyId || !deviceRef.current) {
-            throw new Error('not ready');
+    const ensureRecvTransport = useCallback((): Promise<Transport> => {
+        if (recvTransportRef.current) {
+            return Promise.resolve(recvTransportRef.current);
         }
-        const res = await emitAck<AckRes<{ transport: ServerTransportInfo }>>(
-            socket,
-            'streaming:createTransport',
-            {
+        // Dedupe: producers (video + audio) are consumed concurrently, so
+        // without this several callers would each create their own recv
+        // transport. The server closes the previous recv transport whenever a
+        // new one is created, orphaning the earlier consumers (their media
+        // never flows). Cache the in-flight creation so everyone shares one.
+        if (recvTransportPromiseRef.current) {
+            return recvTransportPromiseRef.current;
+        }
+        const creation = (async (): Promise<Transport> => {
+            if (!socket || !partyId || !deviceRef.current) {
+                throw new Error('not ready');
+            }
+            const res = await emitAck<
+                AckRes<{ transport: ServerTransportInfo }>
+            >(socket, 'streaming:createTransport', {
                 partyId,
                 direction: 'recv'
-            }
-        );
-        if (!res.ok) throw new Error(res.error || 'createTransport failed');
-        const transport = deviceRef.current.createRecvTransport({
-            ...res.transport,
-            iceServers: iceServersRef.current
-        });
-        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
-            emitAck<AckRes>(socket, 'streaming:connectTransport', {
-                partyId,
-                transportId: transport.id,
-                dtlsParameters
-            }).then((r) => {
-                if (r.ok) callback();
-                else errback(new Error(r.error || 'connect failed'));
             });
+            if (!res.ok) throw new Error(res.error || 'createTransport failed');
+            const transport = deviceRef.current.createRecvTransport({
+                ...res.transport,
+                iceServers: iceServersRef.current
+            });
+            transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                emitAck<AckRes>(socket, 'streaming:connectTransport', {
+                    partyId,
+                    transportId: transport.id,
+                    dtlsParameters
+                }).then((r) => {
+                    if (r.ok) callback();
+                    else errback(new Error(r.error || 'connect failed'));
+                });
+            });
+            transport.on('connectionstatechange', (s) => {
+                setStateSafe({ recvState: s });
+            });
+            recvTransportRef.current = transport;
+            return transport;
+        })();
+        recvTransportPromiseRef.current = creation;
+        // If creation fails, clear the cache so a later consume can retry.
+        creation.catch(() => {
+            recvTransportPromiseRef.current = null;
         });
-        transport.on('connectionstatechange', (s) => {
-            setStateSafe({ recvState: s });
-        });
-        recvTransportRef.current = transport;
-        return transport;
+        return creation;
     }, [socket, partyId, setStateSafe]);
 
     const consumeProducer = useCallback(
@@ -424,6 +443,7 @@ export const useStreamingChannel = (
                 }
                 recvTransportRef.current = null;
             }
+            recvTransportPromiseRef.current = null;
             try {
                 socket.emit('streaming:leave', { partyId });
             } catch {
