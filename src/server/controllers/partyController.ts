@@ -96,6 +96,23 @@ const editParty = async (req: Request, res: Response, logger: Logger) => {
 
     const requestParty = req.body.party;
 
+    // Guard against a missing/malformed body before we dereference it.
+    // The webRtcIds backfill below reads id/status/members/settings
+    // before the Joi validator runs, so an absent `party` (or one with
+    // the wrong-typed fields) used to throw and crash the whole process
+    // instead of returning a 400.
+    if (
+        !requestParty ||
+        typeof requestParty !== 'object' ||
+        typeof requestParty.id !== 'string' ||
+        typeof requestParty.status !== 'string' ||
+        !Array.isArray(requestParty.members) ||
+        !requestParty.settings ||
+        typeof requestParty.settings !== 'object'
+    ) {
+        return res.status(400).json({ success: false, msg: 'validationError' });
+    }
+
     const dbParty = await Party.findOne({
         where: { id: requestParty.id }
     });
