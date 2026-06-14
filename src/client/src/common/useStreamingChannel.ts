@@ -113,6 +113,13 @@ export const useStreamingChannel = (
     // late async resolutions after teardown.
     const aliveRef = useRef(true);
 
+    // Mirror of state.isStreamer for use inside socket-event closures that
+    // are registered once and would otherwise capture a stale value.
+    const isStreamerRef = useRef(false);
+    useEffect(() => {
+        isStreamerRef.current = state.isStreamer;
+    }, [state.isStreamer]);
+
     const setStateSafe = useCallback((patch: Partial<StreamingState>): void => {
         if (!aliveRef.current) return;
         setState((cur) => ({ ...cur, ...patch }));
@@ -255,7 +262,9 @@ export const useStreamingChannel = (
             setStateSafe({ streamerUserId: msg.streamerUserId });
             if (msg.streamerUserId === null) {
                 closeRemote();
-                if (state.isStreamer) closeLocal();
+                // isStreamerRef (not the captured `state`) so this reflects
+                // the live value rather than the value at effect-setup time.
+                if (isStreamerRef.current) closeLocal();
             }
         };
 

@@ -117,8 +117,22 @@ try {
         'info',
         `mediasoup SFU ready (${workerCount} worker${
             workerCount > 1 ? 's' : ''
-        })`
+        }) pid=${process.pid}`
     );
+    // The SFU and the socket.io rooms keep all of their state in this
+    // process's memory. Running more than one app instance (e.g. pm2
+    // cluster mode) gives each instance its own isolated state, so two
+    // users on different instances never see each other's stream. Warn
+    // loudly if we detect a multi-instance launch.
+    if (
+        process.env.NODE_APP_INSTANCE !== undefined &&
+        process.env.NODE_APP_INSTANCE !== '0'
+    ) {
+        logger.log(
+            'warn',
+            `Detected pm2 cluster instance NODE_APP_INSTANCE=${process.env.NODE_APP_INSTANCE}. The screenshare channel does NOT work across multiple instances — run sync-party as a single instance (pm2 fork mode).`
+        );
+    }
 } catch (sfuErr) {
     logger.log('error', 'mediasoup SFU failed to init', sfuErr);
 }
@@ -466,6 +480,13 @@ io.on('connection', (socket: Socket) => {
                 const producers = streamingSfu
                     .listProducers(data.partyId)
                     .filter((p) => p.userId !== socketUserId);
+                const roomSize = (await io.in(data.partyId).allSockets()).size;
+                logger.log(
+                    'info',
+                    `streaming:join channel=${data.partyId} user=${socketUserId} pid=${process.pid} roomSockets=${roomSize} currentStreamer=${streamingSfu.getStreamerUserId(
+                        data.partyId
+                    )}`
+                );
                 ack(cb, {
                     ok: true,
                     rtpCapabilities,
@@ -494,6 +515,11 @@ io.on('connection', (socket: Socket) => {
                     streamerUserId: socketUserId
                 });
             }
+            const roomSize = (await io.in(data.partyId).allSockets()).size;
+            logger.log(
+                'info',
+                `streaming:claimStreamer channel=${data.partyId} user=${socketUserId} granted=${ok} pid=${process.pid} broadcastTo=${roomSize} sockets`
+            );
             ack(cb, { ok });
         }
     );
