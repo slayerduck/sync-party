@@ -119,6 +119,89 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                     </div>
                 )}
 
+                {/* Live connection diagnostics — read this to see where it breaks */}
+                <details className="mb-4 rounded-lg border border-white/10 bg-white/5 text-xs">
+                    <summary className="cursor-pointer select-none px-3 py-2 text-gray-300">
+                        {t('screenShare.diagnostics')}
+                    </summary>
+                    <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 font-mono text-gray-400">
+                        <div>
+                            socket:{' '}
+                            <span
+                                className={
+                                    state.socketConnected
+                                        ? 'text-green-400'
+                                        : 'text-red-400'
+                                }
+                            >
+                                {state.socketConnected
+                                    ? 'connected'
+                                    : 'disconnected'}
+                            </span>
+                        </div>
+                        <div>
+                            role:{' '}
+                            <span className="text-gray-200">
+                                {state.isStreamer
+                                    ? 'streamer'
+                                    : isViewer
+                                    ? 'viewer'
+                                    : 'idle'}
+                            </span>
+                        </div>
+                        <div>
+                            streamer:{' '}
+                            <span className="text-gray-200">
+                                {state.streamerUserId
+                                    ? state.streamerUserId.slice(0, 8)
+                                    : 'none'}
+                            </span>
+                        </div>
+                        <div>
+                            TURN:{' '}
+                            <span
+                                className={
+                                    state.turnConfigured
+                                        ? 'text-green-400'
+                                        : 'text-yellow-400'
+                                }
+                            >
+                                {state.turnConfigured
+                                    ? 'configured'
+                                    : 'STUN-only'}
+                            </span>
+                        </div>
+                        <div>
+                            send:{' '}
+                            <span
+                                className={
+                                    state.sendState === 'connected'
+                                        ? 'text-green-400'
+                                        : state.sendState === 'failed'
+                                        ? 'text-red-400'
+                                        : 'text-gray-200'
+                                }
+                            >
+                                {state.sendState}
+                            </span>
+                        </div>
+                        <div>
+                            recv:{' '}
+                            <span
+                                className={
+                                    state.recvState === 'connected'
+                                        ? 'text-green-400'
+                                        : state.recvState === 'failed'
+                                        ? 'text-red-400'
+                                        : 'text-gray-200'
+                                }
+                            >
+                                {state.recvState}
+                            </span>
+                        </div>
+                    </div>
+                </details>
+
                 {!socket && (
                     <div className="text-sm text-gray-400">
                         {t('streaming.connecting')}

@@ -66,6 +66,15 @@ export type StreamingState = {
     /** Incoming stream from the streamer, if anyone is streaming. */
     remoteStream: ViewerStream | null;
     error: string | null;
+    // ---- Diagnostics ----
+    /** Is the signaling socket currently connected? */
+    socketConnected: boolean;
+    /** Did /api/iceServers return a TURN entry (vs STUN-only)? */
+    turnConfigured: boolean;
+    /** ICE/DTLS connection state of our send transport (when streaming). */
+    sendState: string;
+    /** ICE/DTLS connection state of our recv transport (when viewing). */
+    recvState: string;
 };
 
 export type StreamingControls = {
@@ -82,7 +91,11 @@ const noControls: StreamingControls = {
         streamerUserId: null,
         localStream: null,
         remoteStream: null,
-        error: null
+        error: null,
+        socketConnected: false,
+        turnConfigured: false,
+        sendState: 'new',
+        recvState: 'new'
     },
     startSharing: () => Promise.resolve(),
     stopSharing: () => Promise.resolve()
@@ -191,9 +204,12 @@ export const useStreamingChannel = (
                 else errback(new Error(r.error || 'connect failed'));
             });
         });
+        transport.on('connectionstatechange', (s) => {
+            setStateSafe({ recvState: s });
+        });
         recvTransportRef.current = transport;
         return transport;
-    }, [socket, partyId]);
+    }, [socket, partyId, setStateSafe]);
 
     const consumeProducer = useCallback(
         async (producer: StreamingProducerInfo): Promise<void> => {
@@ -302,9 +318,16 @@ export const useStreamingChannel = (
             }
         };
 
+        const onConnect = (): void => setStateSafe({ socketConnected: true });
+        const onDisconnect = (): void =>
+            setStateSafe({ socketConnected: false });
+
         socket.on('streaming:streamerChanged', onStreamerChanged);
         socket.on('streaming:newProducer', onNewProducer);
         socket.on('streaming:producerClosed', onProducerClosed);
+        socket.on('connect', onConnect);
+        socket.on('disconnect', onDisconnect);
+        setStateSafe({ socketConnected: socket.connected });
 
         (async (): Promise<void> => {
             try {
@@ -313,6 +336,11 @@ export const useStreamingChannel = (
                     axiosConfig()
                 );
                 iceServersRef.current = iceRes.data.iceServers || [];
+                const turnConfigured = iceServersRef.current.some((s) => {
+                    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+                    return urls.some((u) => u.startsWith('turn:'));
+                });
+                setStateSafe({ turnConfigured });
 
                 const joinRes = await emitAck<
                     AckRes<{
@@ -347,6 +375,8 @@ export const useStreamingChannel = (
             socket.off('streaming:streamerChanged', onStreamerChanged);
             socket.off('streaming:newProducer', onNewProducer);
             socket.off('streaming:producerClosed', onProducerClosed);
+            socket.off('connect', onConnect);
+            socket.off('disconnect', onDisconnect);
             closeLocal();
             closeRemote();
             if (recvTransportRef.current) {
@@ -423,6 +453,10 @@ export const useStreamingChannel = (
                 if (r.ok) callback();
                 else errback(new Error(r.error || 'connect failed'));
             });
+        });
+
+        transport.on('connectionstatechange', (s) => {
+            setStateSafe({ sendState: s });
         });
 
         transport.on(

@@ -165,7 +165,8 @@ export const translations = {
             },
             screenShare: {
                 idleHint:
-                    'No one is sharing right now. Share your screen and everyone here will see it.'
+                    'No one is sharing right now. Share your screen and everyone here will see it.',
+                diagnostics: 'Connection diagnostics'
             },
             convertUpload: {
                 heading: 'Upload & convert',
