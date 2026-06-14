@@ -168,7 +168,10 @@ export const translations = {
                     'No one is sharing right now. Share your screen and everyone here will see it.',
                 diagnostics: 'Connection diagnostics',
                 noAudio:
-                    'No audio is being shared. Use Chrome (not Firefox) and tick "Share tab/system audio" in the picker to include sound.',
+                    'No audio is being shared. A single window has no audio in any browser — to send sound, use Chrome and share a "Chrome Tab" or "Entire Screen", ticking "Share tab/system audio" in the picker. Or enable "Share my microphone" before sharing.',
+                audioTip:
+                    'For sound: share a "Chrome Tab" or "Entire Screen" (not a single window) and tick "Share tab/system audio". A window share is video-only.',
+                shareMic: 'Also share my microphone',
                 enableSound: 'Enable sound'
             },
             convertUpload: {

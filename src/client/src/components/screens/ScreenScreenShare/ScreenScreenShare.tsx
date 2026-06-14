@@ -36,6 +36,7 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
     const [redirectHome, setRedirectHome] = useState(false);
     const [errorBanner, setErrorBanner] = useState<string | null>(null);
     const [audioBlocked, setAudioBlocked] = useState(false);
+    const [shareMic, setShareMic] = useState(false);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -97,7 +98,7 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
     const onStart = async (): Promise<void> => {
         try {
             setErrorBanner(null);
-            await startSharing();
+            await startSharing({ includeMic: shareMic });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (/NotAllowedError|aborted/i.test(msg)) return;
@@ -325,11 +326,29 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                             size="2x"
                             className="text-gray-500 mb-4"
                         />
-                        <p className="text-sm text-gray-400 mb-6">
+                        <p className="text-sm text-gray-400 mb-4">
                             {slotTaken
                                 ? t('streaming.someoneElseSharing')
                                 : t('screenShare.idleHint')}
                         </p>
+                        {!slotTaken && (
+                            <>
+                                <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">
+                                    {t('screenShare.audioTip')}
+                                </p>
+                                <label className="flex items-center justify-center gap-2 mb-6 text-sm text-gray-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={shareMic}
+                                        onChange={(e): void =>
+                                            setShareMic(e.target.checked)
+                                        }
+                                        className="accent-purple-500"
+                                    />
+                                    {t('screenShare.shareMic')}
+                                </label>
+                            </>
+                        )}
                         <button
                             type="button"
                             onClick={onStart}

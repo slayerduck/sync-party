@@ -81,10 +81,15 @@ export type StreamingState = {
     remoteHasAudio: boolean;
 };
 
+export type StartSharingOptions = {
+    /** Also capture and broadcast the streamer's microphone. */
+    includeMic?: boolean;
+};
+
 export type StreamingControls = {
     state: StreamingState;
     /** Start screen-sharing. Resolves once production has begun. */
-    startSharing: () => Promise<void>;
+    startSharing: (opts?: StartSharingOptions) => Promise<void>;
     /** Stop screen-sharing and release the streamer slot. */
     stopSharing: () => Promise<void>;
 };
@@ -107,6 +112,13 @@ const noControls: StreamingControls = {
     stopSharing: () => Promise.resolve()
 };
 
+// Chrome-only DisplayMediaStreamOptions hints (not in the standard lib types)
+// that make a screen/tab share include system/tab audio by default.
+type ChromeDisplayMediaOptions = DisplayMediaStreamOptions & {
+    systemAudio?: 'include' | 'exclude';
+    surfaceSwitching?: 'include' | 'exclude';
+};
+
 /**
  * Hook that owns one mediasoup-client Device + the recv/send transports
  * for a single party. Mounting joins the streaming room; unmounting
@@ -123,6 +135,7 @@ export const useStreamingChannel = (
     const sendTransportRef = useRef<Transport | null>(null);
     const recvTransportRef = useRef<Transport | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
+    const micStreamRef = useRef<MediaStream | null>(null);
     const remoteStreamRef = useRef<MediaStream | null>(null);
     const producersRef = useRef<Producer[]>([]);
     const consumersRef = useRef<Consumer[]>([]);
@@ -157,6 +170,10 @@ export const useStreamingChannel = (
         if (localStreamRef.current) {
             for (const t of localStreamRef.current.getTracks()) t.stop();
             localStreamRef.current = null;
+        }
+        if (micStreamRef.current) {
+            for (const t of micStreamRef.current.getTracks()) t.stop();
+            micStreamRef.current = null;
         }
         if (sendTransportRef.current) {
             try {
@@ -417,148 +434,183 @@ export const useStreamingChannel = (
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [socket, partyId, ourUserId]);
 
-    const startSharing = useCallback(async (): Promise<void> => {
-        if (!socket || !partyId || !deviceRef.current) {
-            throw new Error('not ready');
-        }
-        // Someone else holds the slot (and it isn't us). The server is the
-        // authority, but bail early for a cleaner UX.
-        if (state.streamerUserId && !state.isStreamer) {
-            throw new Error('another user is already streaming');
-        }
+    const startSharing = useCallback(
+        async (opts?: StartSharingOptions): Promise<void> => {
+            if (!socket || !partyId || !deviceRef.current) {
+                throw new Error('not ready');
+            }
+            // Someone else holds the slot (and it isn't us). The server is the
+            // authority, but bail early for a cleaner UX.
+            if (state.streamerUserId && !state.isStreamer) {
+                throw new Error('another user is already streaming');
+            }
 
-        const claim = await emitAck<AckRes>(socket, 'streaming:claimStreamer', {
-            partyId
-        });
-        if (!claim.ok) {
-            throw new Error('streamer slot taken');
-        }
-
-        // Get the screen capture. Cap framerate/resolution to keep the
-        // streamer's encoder load (and thus lag) down; ask for audio with
-        // processing off so system/tab audio isn't mangled (Chrome only —
-        // Firefox can't capture display audio and returns video only).
-        let stream: MediaStream;
-        try {
-            stream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    frameRate: { ideal: 30, max: 30 },
-                    width: { max: 1920 },
-                    height: { max: 1080 }
-                },
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
+            const claim = await emitAck<AckRes>(
+                socket,
+                'streaming:claimStreamer',
+                {
+                    partyId
                 }
-            });
-        } catch (err) {
-            await emitAck<AckRes>(socket, 'streaming:releaseStreamer', {
-                partyId
-            });
-            throw err;
-        }
-        localStreamRef.current = stream;
+            );
+            if (!claim.ok) {
+                throw new Error('streamer slot taken');
+            }
 
-        // Create the send transport server-side and wrap it client-side.
-        const res = await emitAck<AckRes<{ transport: ServerTransportInfo }>>(
-            socket,
-            'streaming:createTransport',
-            {
+            // Get the screen capture. Cap framerate/resolution to keep the
+            // streamer's encoder load (and thus lag) down; ask for audio with
+            // processing off so system/tab audio isn't mangled. NB: browsers only
+            // capture audio for a TAB or the ENTIRE SCREEN — a single-window share
+            // is always video-only (and Firefox can't capture display audio at
+            // all). systemAudio:'include' makes Chrome default to including it.
+            let stream: MediaStream;
+            try {
+                const displayOptions: ChromeDisplayMediaOptions = {
+                    video: {
+                        frameRate: { ideal: 30, max: 30 },
+                        width: { max: 1920 },
+                        height: { max: 1080 }
+                    },
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    },
+                    systemAudio: 'include',
+                    surfaceSwitching: 'include'
+                };
+                stream = await navigator.mediaDevices.getDisplayMedia(
+                    displayOptions
+                );
+            } catch (err) {
+                await emitAck<AckRes>(socket, 'streaming:releaseStreamer', {
+                    partyId
+                });
+                throw err;
+            }
+            localStreamRef.current = stream;
+
+            // Optional microphone: a guaranteed audio path that works even for a
+            // window share (which carries no display audio) and on Firefox. This
+            // broadcasts the streamer's mic, not the shared app's own sound.
+            if (opts?.includeMic) {
+                try {
+                    const micStream = await navigator.mediaDevices.getUserMedia(
+                        {
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true
+                            }
+                        }
+                    );
+                    micStreamRef.current = micStream;
+                    for (const t of micStream.getAudioTracks()) {
+                        stream.addTrack(t);
+                    }
+                } catch {
+                    // mic denied/unavailable — carry on with whatever we have
+                }
+            }
+
+            // Create the send transport server-side and wrap it client-side.
+            const res = await emitAck<
+                AckRes<{ transport: ServerTransportInfo }>
+            >(socket, 'streaming:createTransport', {
                 partyId,
                 direction: 'send'
-            }
-        );
-        if (!res.ok) throw new Error(res.error || 'createTransport failed');
-
-        const transport = deviceRef.current.createSendTransport({
-            ...res.transport,
-            iceServers: iceServersRef.current
-        });
-        sendTransportRef.current = transport;
-
-        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
-            emitAck<AckRes>(socket, 'streaming:connectTransport', {
-                partyId,
-                transportId: transport.id,
-                dtlsParameters
-            }).then((r) => {
-                if (r.ok) callback();
-                else errback(new Error(r.error || 'connect failed'));
             });
-        });
+            if (!res.ok) throw new Error(res.error || 'createTransport failed');
 
-        transport.on('connectionstatechange', (s) => {
-            setStateSafe({ sendState: s });
-        });
+            const transport = deviceRef.current.createSendTransport({
+                ...res.transport,
+                iceServers: iceServersRef.current
+            });
+            sendTransportRef.current = transport;
 
-        transport.on(
-            'produce',
-            ({ kind, rtpParameters }, callback, errback) => {
-                emitAck<AckRes<{ producerId: string }>>(
-                    socket,
-                    'streaming:produce',
-                    {
-                        partyId,
-                        transportId: transport.id,
-                        kind,
-                        rtpParameters
+            transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                emitAck<AckRes>(socket, 'streaming:connectTransport', {
+                    partyId,
+                    transportId: transport.id,
+                    dtlsParameters
+                }).then((r) => {
+                    if (r.ok) callback();
+                    else errback(new Error(r.error || 'connect failed'));
+                });
+            });
+
+            transport.on('connectionstatechange', (s) => {
+                setStateSafe({ sendState: s });
+            });
+
+            transport.on(
+                'produce',
+                ({ kind, rtpParameters }, callback, errback) => {
+                    emitAck<AckRes<{ producerId: string }>>(
+                        socket,
+                        'streaming:produce',
+                        {
+                            partyId,
+                            transportId: transport.id,
+                            kind,
+                            rtpParameters
+                        }
+                    ).then((r) => {
+                        if (r.ok) callback({ id: r.producerId });
+                        else errback(new Error(r.error || 'produce failed'));
+                    });
+                }
+            );
+
+            // Prefer H264 for the video producer when the browser advertises it
+            // (hardware encode); otherwise mediasoup falls back to VP8.
+            const h264Codec = deviceRef.current.rtpCapabilities.codecs?.find(
+                (c) => c.mimeType.toLowerCase() === 'video/h264'
+            );
+
+            for (const track of stream.getTracks()) {
+                try {
+                    if (track.kind === 'video') {
+                        // Hint that this is detailed/static screen content so the
+                        // encoder favours sharpness over framerate.
+                        try {
+                            track.contentHint = 'detail';
+                        } catch {
+                            // contentHint may be read-only in some browsers
+                        }
+                        const producer = await transport.produce({
+                            track,
+                            encodings: [{ maxBitrate: 3_000_000 }],
+                            codecOptions: { videoGoogleStartBitrate: 1000 },
+                            ...(h264Codec ? { codec: h264Codec } : {})
+                        });
+                        producersRef.current.push(producer);
+                    } else {
+                        const producer = await transport.produce({ track });
+                        producersRef.current.push(producer);
                     }
-                ).then((r) => {
-                    if (r.ok) callback({ id: r.producerId });
-                    else errback(new Error(r.error || 'produce failed'));
+                } catch {
+                    // ignore individual track failure; we still publish the others
+                }
+            }
+
+            // If the user stops sharing via the browser's "Stop sharing" UI,
+            // release the streamer slot.
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.addEventListener('ended', () => {
+                    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+                    stopSharingRef.current?.();
                 });
             }
-        );
 
-        // Prefer H264 for the video producer when the browser advertises it
-        // (hardware encode); otherwise mediasoup falls back to VP8.
-        const h264Codec = deviceRef.current.rtpCapabilities.codecs?.find(
-            (c) => c.mimeType.toLowerCase() === 'video/h264'
-        );
-
-        for (const track of stream.getTracks()) {
-            try {
-                if (track.kind === 'video') {
-                    // Hint that this is detailed/static screen content so the
-                    // encoder favours sharpness over framerate.
-                    try {
-                        track.contentHint = 'detail';
-                    } catch {
-                        // contentHint may be read-only in some browsers
-                    }
-                    const producer = await transport.produce({
-                        track,
-                        encodings: [{ maxBitrate: 3_000_000 }],
-                        codecOptions: { videoGoogleStartBitrate: 1000 },
-                        ...(h264Codec ? { codec: h264Codec } : {})
-                    });
-                    producersRef.current.push(producer);
-                } else {
-                    const producer = await transport.produce({ track });
-                    producersRef.current.push(producer);
-                }
-            } catch {
-                // ignore individual track failure; we still publish the others
-            }
-        }
-
-        // If the user stops sharing via the browser's "Stop sharing" UI,
-        // release the streamer slot.
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-            videoTrack.addEventListener('ended', () => {
-                // eslint-disable-next-line @typescript-eslint/no-use-before-define
-                stopSharingRef.current?.();
+            setStateSafe({
+                isStreamer: true,
+                localStream: stream,
+                audioCaptured: stream.getAudioTracks().length > 0
             });
-        }
-
-        setStateSafe({
-            isStreamer: true,
-            localStream: stream,
-            audioCaptured: stream.getAudioTracks().length > 0
-        });
-    }, [socket, partyId, state.streamerUserId, state.isStreamer, setStateSafe]);
+        },
+        [socket, partyId, state.streamerUserId, state.isStreamer, setStateSafe]
+    );
 
     const stopSharing = useCallback(async (): Promise<void> => {
         if (!socket || !partyId) return;
