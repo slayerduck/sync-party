@@ -86,13 +86,15 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
     };
 
     useEffect(() => {
-        if (
-            localVideoRef.current &&
-            state.localStream &&
-            localVideoRef.current.srcObject !== state.localStream
-        ) {
-            localVideoRef.current.srcObject = state.localStream;
-        }
+        const el = localVideoRef.current;
+        if (!el || !state.localStream) return;
+        // The streamer's own preview shows the picture only. Give it a
+        // video-only stream and mute it imperatively so the streamer never
+        // hears their own captured/mic audio played back (React's declarative
+        // `muted` prop is unreliable, hence setting el.muted directly).
+        el.srcObject = new MediaStream(state.localStream.getVideoTracks());
+        el.muted = true;
+        el.play().catch(() => undefined);
     }, [state.localStream]);
 
     const onStart = async (): Promise<void> => {
