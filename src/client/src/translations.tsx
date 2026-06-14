@@ -168,7 +168,8 @@ export const translations = {
                     'No one is sharing right now. Share your screen and everyone here will see it.',
                 diagnostics: 'Connection diagnostics',
                 noAudio:
-                    'No audio is being shared. Use Chrome (not Firefox) and tick "Share tab/system audio" in the picker to include sound.'
+                    'No audio is being shared. Use Chrome (not Firefox) and tick "Share tab/system audio" in the picker to include sound.',
+                enableSound: 'Enable sound'
             },
             convertUpload: {
                 heading: 'Upload & convert',

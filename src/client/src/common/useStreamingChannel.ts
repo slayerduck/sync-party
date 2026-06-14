@@ -77,6 +77,8 @@ export type StreamingState = {
     recvState: string;
     /** When streaming: did the screen capture include an audio track? */
     audioCaptured: boolean;
+    /** When viewing: does the incoming stream carry an audio track? */
+    remoteHasAudio: boolean;
 };
 
 export type StreamingControls = {
@@ -98,7 +100,8 @@ const noControls: StreamingControls = {
         turnConfigured: false,
         sendState: 'new',
         recvState: 'new',
-        audioCaptured: true
+        audioCaptured: true,
+        remoteHasAudio: false
     },
     startSharing: () => Promise.resolve(),
     stopSharing: () => Promise.resolve()
@@ -176,7 +179,7 @@ export const useStreamingChannel = (
         }
         consumersRef.current = [];
         remoteStreamRef.current = null;
-        setStateSafe({ remoteStream: null });
+        setStateSafe({ remoteStream: null, remoteHasAudio: false });
     }, [setStateSafe]);
 
     const ensureRecvTransport = useCallback(async (): Promise<Transport> => {
@@ -241,15 +244,24 @@ export const useStreamingChannel = (
                     rtpParameters: res.consumer.rtpParameters
                 });
                 consumersRef.current.push(consumer);
-                if (!remoteStreamRef.current) {
-                    remoteStreamRef.current = new MediaStream();
-                }
-                remoteStreamRef.current.addTrack(consumer.track);
+                // Rebuild the remote stream from ALL current consumer tracks
+                // as a fresh MediaStream object. Producers arrive as separate
+                // events (video, then audio), so a same-reference stream that
+                // we only addTrack() to often won't get its newly-added audio
+                // track played by a <video> element that already started.
+                // A new object reference also forces the element to re-attach.
+                remoteStreamRef.current = new MediaStream(
+                    consumersRef.current.map((c) => c.track)
+                );
+                const remoteHasAudio = consumersRef.current.some(
+                    (c) => c.track.kind === 'audio'
+                );
                 setStateSafe({
                     remoteStream: {
                         userId: producer.userId,
                         stream: remoteStreamRef.current
-                    }
+                    },
+                    remoteHasAudio
                 });
                 await emitAck<AckRes>(socket, 'streaming:resumeConsumer', {
                     partyId,

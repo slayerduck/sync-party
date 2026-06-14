@@ -35,18 +35,33 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
 
     const [redirectHome, setRedirectHome] = useState(false);
     const [errorBanner, setErrorBanner] = useState<string | null>(null);
+    const [audioBlocked, setAudioBlocked] = useState(false);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
     useEffect(() => {
-        if (
-            remoteVideoRef.current &&
-            state.remoteStream &&
-            remoteVideoRef.current.srcObject !== state.remoteStream.stream
-        ) {
-            remoteVideoRef.current.srcObject = state.remoteStream.stream;
+        const el = remoteVideoRef.current;
+        if (!el || !state.remoteStream) return;
+        if (el.srcObject !== state.remoteStream.stream) {
+            el.srcObject = state.remoteStream.stream;
         }
+        // Make sure incoming audio is actually heard. Autoplay-with-sound can
+        // be blocked by the browser; if play() is rejected, surface an
+        // "enable sound" button the user can click (a gesture unblocks it).
+        el.muted = false;
+        el.play()
+            .then(() => setAudioBlocked(false))
+            .catch(() => setAudioBlocked(true));
     }, [state.remoteStream]);
+
+    const enableSound = (): void => {
+        const el = remoteVideoRef.current;
+        if (!el) return;
+        el.muted = false;
+        el.play()
+            .then(() => setAudioBlocked(false))
+            .catch(() => setAudioBlocked(true));
+    };
 
     useEffect(() => {
         if (
@@ -197,6 +212,20 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                                 {state.recvState}
                             </span>
                         </div>
+                        <div>
+                            audio:{' '}
+                            <span className="text-gray-200">
+                                {state.isStreamer
+                                    ? state.audioCaptured
+                                        ? 'captured'
+                                        : 'none captured'
+                                    : isViewer
+                                    ? state.remoteHasAudio
+                                        ? 'track present'
+                                        : 'no track'
+                                    : '—'}
+                            </span>
+                        </div>
                     </div>
                 </details>
 
@@ -208,14 +237,25 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
 
                 {/* Viewer: someone else is streaming */}
                 {isViewer && (
-                    <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
-                        <video
-                            ref={remoteVideoRef}
-                            autoPlay
-                            playsInline
-                            controls
-                            className="w-full max-h-[75vh] bg-black object-contain"
-                        />
+                    <div>
+                        {audioBlocked && state.remoteHasAudio && (
+                            <button
+                                type="button"
+                                onClick={enableSound}
+                                className="mb-3 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500"
+                            >
+                                {t('screenShare.enableSound')}
+                            </button>
+                        )}
+                        <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
+                            <video
+                                ref={remoteVideoRef}
+                                autoPlay
+                                playsInline
+                                controls
+                                className="w-full max-h-[75vh] bg-black object-contain"
+                            />
+                        </div>
                     </div>
                 )}
 
