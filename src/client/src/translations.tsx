@@ -154,12 +154,16 @@ export const translations = {
             convertUpload: {
                 heading: 'Upload & convert',
                 description:
-                    'Upload a video here to convert and normalize it, then add it to a room. Doing this from the dashboard avoids uploading while the player is running.',
+                    'Upload one or more videos here to convert and normalize them, then add them to a room. Doing this from the dashboard avoids uploading while the player is running.',
                 targetRoom: 'Add to room',
                 noRooms: 'You are not a member of any room yet.',
                 dropHint:
                     'Click to choose a video (mp4, mkv, avi, mov, …) — it will be re-encoded for normalization',
-                queued: 'Started converting "{{name}}". It will appear in {{party}} once it is ready.'
+                dropHintMulti:
+                    'Click to choose one or more videos (mp4, mkv, avi, mov, …) — each is re-encoded for normalization',
+                queued: 'Started converting "{{name}}". It will appear in {{party}} once it is ready.',
+                targetingRoom: 'To room: {{party}}',
+                removeJob: 'Remove'
             },
             processing: {
                 heading: 'Processing files',
