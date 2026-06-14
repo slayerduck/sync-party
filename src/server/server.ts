@@ -477,13 +477,19 @@ io.on('connection', (socket: Socket) => {
                 const rtpCapabilities =
                     await streamingSfu.getRouterRtpCapabilities(data.partyId);
                 streamingPartyIds.add(data.partyId);
+                // Exclude only this connection's own producers (by socket id),
+                // so a second device of the same user still sees the stream.
                 const producers = streamingSfu
                     .listProducers(data.partyId)
-                    .filter((p) => p.userId !== socketUserId);
+                    .filter((p) => p.peerId !== socket.id);
                 const roomSize = (await io.in(data.partyId).allSockets()).size;
                 logger.log(
                     'info',
-                    `streaming:join channel=${data.partyId} user=${socketUserId} pid=${process.pid} roomSockets=${roomSize} currentStreamer=${streamingSfu.getStreamerUserId(
+                    `streaming:join channel=${
+                        data.partyId
+                    } user=${socketUserId} peer=${socket.id} pid=${
+                        process.pid
+                    } roomSockets=${roomSize} currentStreamer=${streamingSfu.getStreamerUserId(
                         data.partyId
                     )}`
                 );
@@ -508,7 +514,11 @@ io.on('connection', (socket: Socket) => {
                 ack(cb, { ok: false });
                 return;
             }
-            const ok = streamingSfu.claimStreamer(data.partyId, socketUserId);
+            const ok = streamingSfu.claimStreamer(
+                data.partyId,
+                socket.id,
+                socketUserId
+            );
             if (ok) {
                 io.to(data.partyId).emit('streaming:streamerChanged', {
                     partyId: data.partyId,
@@ -518,7 +528,7 @@ io.on('connection', (socket: Socket) => {
             const roomSize = (await io.in(data.partyId).allSockets()).size;
             logger.log(
                 'info',
-                `streaming:claimStreamer channel=${data.partyId} user=${socketUserId} granted=${ok} pid=${process.pid} broadcastTo=${roomSize} sockets`
+                `streaming:claimStreamer channel=${data.partyId} user=${socketUserId} peer=${socket.id} granted=${ok} pid=${process.pid} broadcastTo=${roomSize} sockets`
             );
             ack(cb, { ok });
         }
@@ -529,7 +539,7 @@ io.on('connection', (socket: Socket) => {
         (data: { partyId: string }, cb?: unknown) => {
             const released = streamingSfu.releaseStreamerIfHeld(
                 data.partyId,
-                socketUserId
+                socket.id
             );
             if (released) {
                 io.to(data.partyId).emit('streaming:streamerChanged', {
@@ -550,6 +560,7 @@ io.on('connection', (socket: Socket) => {
             try {
                 const info = await streamingSfu.createWebRtcTransport(
                     data.partyId,
+                    socket.id,
                     socketUserId,
                     data.direction
                 );
@@ -576,7 +587,7 @@ io.on('connection', (socket: Socket) => {
             try {
                 await streamingSfu.connectTransport(
                     data.partyId,
-                    socketUserId,
+                    socket.id,
                     data.transportId,
                     data.dtlsParameters
                 );
@@ -601,7 +612,7 @@ io.on('connection', (socket: Socket) => {
             try {
                 const result = await streamingSfu.produce(
                     data.partyId,
-                    socketUserId,
+                    socket.id,
                     data.transportId,
                     data.kind,
                     data.rtpParameters
@@ -634,7 +645,7 @@ io.on('connection', (socket: Socket) => {
             try {
                 const c = await streamingSfu.consume(
                     data.partyId,
-                    socketUserId,
+                    socket.id,
                     data.producerId,
                     data.rtpCapabilities
                 );
@@ -651,7 +662,7 @@ io.on('connection', (socket: Socket) => {
             try {
                 await streamingSfu.resumeConsumer(
                     data.partyId,
-                    socketUserId,
+                    socket.id,
                     data.consumerId
                 );
                 ack(cb, { ok: true });
@@ -662,9 +673,8 @@ io.on('connection', (socket: Socket) => {
     );
 
     socket.on('streaming:leave', (data: { partyId: string }) => {
-        const wasStreamer =
-            streamingSfu.getStreamerUserId(data.partyId) === socketUserId;
-        streamingSfu.leaveRoom(data.partyId, socketUserId);
+        const wasStreamer = streamingSfu.isStreamer(data.partyId, socket.id);
+        streamingSfu.leaveRoom(data.partyId, socket.id);
         streamingPartyIds.delete(data.partyId);
         // The global channel was joined explicitly; leave its room so we
         // stop receiving its broadcasts. Party rooms stay (used elsewhere).
@@ -681,9 +691,8 @@ io.on('connection', (socket: Socket) => {
 
     socket.on('disconnect', () => {
         for (const partyId of streamingPartyIds) {
-            const wasStreamer =
-                streamingSfu.getStreamerUserId(partyId) === socketUserId;
-            streamingSfu.leaveRoom(partyId, socketUserId);
+            const wasStreamer = streamingSfu.isStreamer(partyId, socket.id);
+            streamingSfu.leaveRoom(partyId, socket.id);
             if (wasStreamer) {
                 io.to(partyId).emit('streaming:streamerChanged', {
                     partyId,

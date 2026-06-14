@@ -69,13 +69,11 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
         }
     };
 
-    const ourUserId = user ? user.id : null;
-    const isViewer =
-        !state.isStreamer &&
-        state.streamerUserId !== null &&
-        state.streamerUserId !== ourUserId;
-    const slotTaken =
-        state.streamerUserId !== null && state.streamerUserId !== ourUserId;
+    // Viewer = someone is streaming and it isn't THIS connection. We rely on
+    // our own role (state.isStreamer), not a userId comparison, so a second
+    // device of the same account is correctly treated as a viewer.
+    const isViewer = !state.isStreamer && state.streamerUserId !== null;
+    const slotTaken = !state.isStreamer && state.streamerUserId !== null;
 
     if (redirectHome) {
         return <Navigate to={'/'}></Navigate>;

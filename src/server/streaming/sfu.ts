@@ -26,9 +26,11 @@ const MEDIA_CODECS: mediasoup.types.RtpCodecCapability[] = [
     }
 ];
 
-export type PeerKind = 'streamer' | 'viewer';
-
+// Peers are keyed by peerId (the socket id), NOT userId, so the same user
+// signed in on two devices gets two independent peers — one can stream and
+// the other can view without their transports/producers colliding.
 type Peer = {
+    peerId: string;
     userId: string;
     sendTransport?: WebRtcTransport;
     recvTransport?: WebRtcTransport;
@@ -36,11 +38,13 @@ type Peer = {
     consumers: Map<string, Consumer>;
 };
 
+type Streamer = { peerId: string; userId: string };
+
 type Room = {
-    partyId: string;
+    channelId: string;
     router: Router;
-    peers: Map<string, Peer>; // keyed by userId
-    streamerUserId: string | null;
+    peers: Map<string, Peer>; // keyed by peerId (socket id)
+    streamer: Streamer | null;
 };
 
 type TransportInfo = {
@@ -48,6 +52,13 @@ type TransportInfo = {
     iceParameters: mediasoup.types.IceParameters;
     iceCandidates: mediasoup.types.IceCandidate[];
     dtlsParameters: DtlsParameters;
+};
+
+type ProducerInfo = {
+    producerId: string;
+    peerId: string;
+    userId: string;
+    kind: MediaKind;
 };
 
 const WORKER_LOG_LEVEL: mediasoup.types.WorkerLogLevel = 'warn';
@@ -88,61 +99,67 @@ export class StreamingSfu {
         return w;
     }
 
-    private async getOrCreateRoom(partyId: string): Promise<Room> {
-        let room = this.rooms.get(partyId);
+    private async getOrCreateRoom(channelId: string): Promise<Room> {
+        let room = this.rooms.get(channelId);
         if (!room) {
             const router = await this.nextWorker().createRouter({
                 mediaCodecs: MEDIA_CODECS
             });
             room = {
-                partyId,
+                channelId,
                 router,
                 peers: new Map(),
-                streamerUserId: null
+                streamer: null
             };
-            this.rooms.set(partyId, room);
+            this.rooms.set(channelId, room);
         }
         return room;
     }
 
-    private getOrCreatePeer(room: Room, userId: string): Peer {
-        let peer = room.peers.get(userId);
+    private getOrCreatePeer(room: Room, peerId: string, userId: string): Peer {
+        let peer = room.peers.get(peerId);
         if (!peer) {
             peer = {
+                peerId,
                 userId,
                 producers: new Map(),
                 consumers: new Map()
             };
-            room.peers.set(userId, peer);
+            room.peers.set(peerId, peer);
         }
         return peer;
     }
 
     /** Caller fetches router caps to initialize their Device. */
-    async getRouterRtpCapabilities(partyId: string): Promise<RtpCapabilities> {
-        const room = await this.getOrCreateRoom(partyId);
+    async getRouterRtpCapabilities(
+        channelId: string
+    ): Promise<RtpCapabilities> {
+        const room = await this.getOrCreateRoom(channelId);
         return room.router.rtpCapabilities;
     }
 
-    /** Claim or release the single streamer slot in this party. */
-    claimStreamer(partyId: string, userId: string): boolean {
-        const room = this.rooms.get(partyId);
+    /**
+     * Claim the single streamer slot for this connection. Returns false if
+     * another connection (even the same user on another device) holds it.
+     */
+    claimStreamer(channelId: string, peerId: string, userId: string): boolean {
+        const room = this.rooms.get(channelId);
         if (!room) return false;
-        if (room.streamerUserId && room.streamerUserId !== userId) {
+        if (room.streamer && room.streamer.peerId !== peerId) {
             return false;
         }
-        room.streamerUserId = userId;
+        room.streamer = { peerId, userId };
         return true;
     }
 
-    releaseStreamerIfHeld(partyId: string, userId: string): boolean {
-        const room = this.rooms.get(partyId);
+    releaseStreamerIfHeld(channelId: string, peerId: string): boolean {
+        const room = this.rooms.get(channelId);
         if (!room) return false;
-        if (room.streamerUserId !== userId) return false;
-        room.streamerUserId = null;
-        // Close all of this user's producers; consumers on other peers
+        if (!room.streamer || room.streamer.peerId !== peerId) return false;
+        room.streamer = null;
+        // Close all of this peer's producers; consumers on other peers
         // will close themselves and the server emits producerClosed.
-        const peer = room.peers.get(userId);
+        const peer = room.peers.get(peerId);
         if (peer) {
             for (const p of peer.producers.values()) {
                 try {
@@ -156,22 +173,31 @@ export class StreamingSfu {
         return true;
     }
 
-    getStreamerUserId(partyId: string): string | null {
-        return this.rooms.get(partyId)?.streamerUserId ?? null;
+    /** The userId of the active streamer (for display), if any. */
+    getStreamerUserId(channelId: string): string | null {
+        return this.rooms.get(channelId)?.streamer?.userId ?? null;
     }
 
-    /** List currently-published producers in this room (so a new viewer can subscribe to all). */
-    listProducers(
-        partyId: string
-    ): { producerId: string; userId: string; kind: MediaKind }[] {
-        const room = this.rooms.get(partyId);
+    /** Is this specific connection the active streamer of the channel? */
+    isStreamer(channelId: string, peerId: string): boolean {
+        const room = this.rooms.get(channelId);
+        return !!room && !!room.streamer && room.streamer.peerId === peerId;
+    }
+
+    /** List currently-published producers (so a new viewer can subscribe). */
+    listProducers(channelId: string): ProducerInfo[] {
+        const room = this.rooms.get(channelId);
         if (!room) return [];
-        const out: { producerId: string; userId: string; kind: MediaKind }[] =
-            [];
-        for (const [userId, peer] of room.peers.entries()) {
+        const out: ProducerInfo[] = [];
+        for (const peer of room.peers.values()) {
             for (const p of peer.producers.values()) {
                 if (!p.closed) {
-                    out.push({ producerId: p.id, userId, kind: p.kind });
+                    out.push({
+                        producerId: p.id,
+                        peerId: peer.peerId,
+                        userId: peer.userId,
+                        kind: p.kind
+                    });
                 }
             }
         }
@@ -179,12 +205,13 @@ export class StreamingSfu {
     }
 
     async createWebRtcTransport(
-        partyId: string,
+        channelId: string,
+        peerId: string,
         userId: string,
         direction: 'send' | 'recv'
     ): Promise<TransportInfo> {
-        const room = await this.getOrCreateRoom(partyId);
-        const peer = this.getOrCreatePeer(room, userId);
+        const room = await this.getOrCreateRoom(channelId);
+        const peer = this.getOrCreatePeer(room, peerId, userId);
 
         const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
         const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
@@ -214,29 +241,29 @@ export class StreamingSfu {
     }
 
     async connectTransport(
-        partyId: string,
-        userId: string,
+        channelId: string,
+        peerId: string,
         transportId: string,
         dtlsParameters: DtlsParameters
     ): Promise<void> {
-        const peer = this.peerOrThrow(partyId, userId);
+        const peer = this.peerOrThrow(channelId, peerId);
         const t = this.findTransport(peer, transportId);
         await t.connect({ dtlsParameters });
     }
 
     async produce(
-        partyId: string,
-        userId: string,
+        channelId: string,
+        peerId: string,
         transportId: string,
         kind: MediaKind,
         rtpParameters: RtpParameters
     ): Promise<{ producerId: string }> {
-        const room = this.rooms.get(partyId);
+        const room = this.rooms.get(channelId);
         if (!room) throw new Error('room not found');
-        if (room.streamerUserId !== userId) {
+        if (!room.streamer || room.streamer.peerId !== peerId) {
             throw new Error('not the active streamer');
         }
-        const peer = this.peerOrThrow(partyId, userId);
+        const peer = this.peerOrThrow(channelId, peerId);
         const t = peer.sendTransport;
         if (!t || t.id !== transportId) {
             throw new Error('send transport not found');
@@ -254,8 +281,8 @@ export class StreamingSfu {
      * expected to resume after wiring it up on the client.
      */
     async consume(
-        partyId: string,
-        userId: string,
+        channelId: string,
+        peerId: string,
         producerId: string,
         rtpCapabilities: RtpCapabilities
     ): Promise<{
@@ -264,12 +291,12 @@ export class StreamingSfu {
         kind: MediaKind;
         rtpParameters: RtpParameters;
     }> {
-        const room = this.rooms.get(partyId);
+        const room = this.rooms.get(channelId);
         if (!room) throw new Error('room not found');
         if (!room.router.canConsume({ producerId, rtpCapabilities })) {
             throw new Error('cannot consume');
         }
-        const peer = this.peerOrThrow(partyId, userId);
+        const peer = this.peerOrThrow(channelId, peerId);
         const t = peer.recvTransport;
         if (!t) throw new Error('recv transport not found');
 
@@ -296,30 +323,30 @@ export class StreamingSfu {
     }
 
     async resumeConsumer(
-        partyId: string,
-        userId: string,
+        channelId: string,
+        peerId: string,
         consumerId: string
     ): Promise<void> {
-        const peer = this.peerOrThrow(partyId, userId);
+        const peer = this.peerOrThrow(channelId, peerId);
         const c = peer.consumers.get(consumerId);
         if (!c) return;
         await c.resume();
     }
 
-    /** Close everything this user holds in this party. */
-    leaveRoom(partyId: string, userId: string): void {
-        const room = this.rooms.get(partyId);
+    /** Close everything this connection holds in this channel. */
+    leaveRoom(channelId: string, peerId: string): void {
+        const room = this.rooms.get(channelId);
         if (!room) return;
-        const peer = room.peers.get(userId);
+        const peer = room.peers.get(peerId);
         if (peer) {
             for (const p of peer.producers.values()) p.close();
             for (const c of peer.consumers.values()) c.close();
             peer.sendTransport?.close();
             peer.recvTransport?.close();
-            room.peers.delete(userId);
+            room.peers.delete(peerId);
         }
-        if (room.streamerUserId === userId) {
-            room.streamerUserId = null;
+        if (room.streamer && room.streamer.peerId === peerId) {
+            room.streamer = null;
         }
         if (room.peers.size === 0) {
             // Last peer left; dispose the router so we don't leak memory.
@@ -328,14 +355,14 @@ export class StreamingSfu {
             } catch {
                 // best effort
             }
-            this.rooms.delete(partyId);
+            this.rooms.delete(channelId);
         }
     }
 
-    private peerOrThrow(partyId: string, userId: string): Peer {
-        const room = this.rooms.get(partyId);
+    private peerOrThrow(channelId: string, peerId: string): Peer {
+        const room = this.rooms.get(channelId);
         if (!room) throw new Error('room not found');
-        const peer = room.peers.get(userId);
+        const peer = room.peers.get(peerId);
         if (!peer) throw new Error('peer not in room');
         return peer;
     }

@@ -286,7 +286,10 @@ export const useStreamingChannel = (
 
         const onNewProducer = (msg: StreamingNewProducerMessage): void => {
             if (msg.partyId !== partyId) return;
-            if (msg.producer.userId === ourUserId) return;
+            // If THIS connection is the streamer, the producer is our own —
+            // don't consume it. (Keyed on our role, not userId, so a second
+            // device of the same user still consumes the stream.)
+            if (isStreamerRef.current) return;
             consumeProducer(msg.producer);
         };
 
@@ -361,8 +364,10 @@ export const useStreamingChannel = (
                     error: null
                 });
 
+                // We just joined, so we're a viewer — the server already
+                // excluded our own producers. Consume everything present.
                 for (const p of joinRes.producers) {
-                    if (p.userId !== ourUserId) consumeProducer(p);
+                    consumeProducer(p);
                 }
             } catch (err) {
                 setStateSafe({ error: String(err) });
@@ -401,7 +406,9 @@ export const useStreamingChannel = (
         if (!socket || !partyId || !deviceRef.current) {
             throw new Error('not ready');
         }
-        if (state.streamerUserId && state.streamerUserId !== ourUserId) {
+        // Someone else holds the slot (and it isn't us). The server is the
+        // authority, but bail early for a cleaner UX.
+        if (state.streamerUserId && !state.isStreamer) {
             throw new Error('another user is already streaming');
         }
 
@@ -498,7 +505,7 @@ export const useStreamingChannel = (
         }
 
         setStateSafe({ isStreamer: true, localStream: stream });
-    }, [socket, partyId, ourUserId, state.streamerUserId, setStateSafe]);
+    }, [socket, partyId, state.streamerUserId, state.isStreamer, setStateSafe]);
 
     const stopSharing = useCallback(async (): Promise<void> => {
         if (!socket || !partyId) return;
