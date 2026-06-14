@@ -250,6 +250,22 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                                     : '—'}
                             </span>
                         </div>
+                        {state.produceError && (
+                            <div className="col-span-2 sm:col-span-3 break-words">
+                                publish error:{' '}
+                                <span className="text-red-400">
+                                    {state.produceError}
+                                </span>
+                            </div>
+                        )}
+                        {state.consumeError && (
+                            <div className="col-span-2 sm:col-span-3 break-words">
+                                subscribe error:{' '}
+                                <span className="text-red-400">
+                                    {state.consumeError}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </details>
 

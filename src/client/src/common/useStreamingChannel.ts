@@ -79,6 +79,10 @@ export type StreamingState = {
     audioCaptured: boolean;
     /** When viewing: does the incoming stream carry an audio track? */
     remoteHasAudio: boolean;
+    /** Last error while publishing a track (streamer), per kind. */
+    produceError: string | null;
+    /** Last error while subscribing to a track (viewer), per kind. */
+    consumeError: string | null;
 };
 
 export type StartSharingOptions = {
@@ -106,7 +110,9 @@ const noControls: StreamingControls = {
         sendState: 'new',
         recvState: 'new',
         audioCaptured: true,
-        remoteHasAudio: false
+        remoteHasAudio: false,
+        produceError: null,
+        consumeError: null
     },
     startSharing: () => Promise.resolve(),
     stopSharing: () => Promise.resolve()
@@ -186,7 +192,11 @@ export const useStreamingChannel = (
             }
             sendTransportRef.current = null;
         }
-        setStateSafe({ isStreamer: false, localStream: null });
+        setStateSafe({
+            isStreamer: false,
+            localStream: null,
+            produceError: null
+        });
     }, [setStateSafe]);
 
     const closeRemote = useCallback((): void => {
@@ -199,7 +209,11 @@ export const useStreamingChannel = (
         }
         consumersRef.current = [];
         remoteStreamRef.current = null;
-        setStateSafe({ remoteStream: null, remoteHasAudio: false });
+        setStateSafe({
+            remoteStream: null,
+            remoteHasAudio: false,
+            consumeError: null
+        });
     }, [setStateSafe]);
 
     const ensureRecvTransport = useCallback((): Promise<Transport> => {
@@ -272,7 +286,14 @@ export const useStreamingChannel = (
                     producerId: producer.producerId,
                     rtpCapabilities: deviceRef.current.rtpCapabilities
                 });
-                if (!res.ok) return;
+                if (!res.ok) {
+                    setStateSafe({
+                        consumeError: `${producer.kind}: ${
+                            res.error || 'consume rejected'
+                        }`
+                    });
+                    return;
+                }
                 const consumer = await transport.consume({
                     id: res.consumer.id,
                     producerId: res.consumer.producerId,
@@ -297,14 +318,20 @@ export const useStreamingChannel = (
                         userId: producer.userId,
                         stream: remoteStreamRef.current
                     },
-                    remoteHasAudio
+                    remoteHasAudio,
+                    // A track came through; clear any earlier consume error.
+                    consumeError: null
                 });
                 await emitAck<AckRes>(socket, 'streaming:resumeConsumer', {
                     partyId,
                     consumerId: consumer.id
                 });
-            } catch {
-                // ignore individual consume failures
+            } catch (err) {
+                setStateSafe({
+                    consumeError: `${producer.kind}: ${
+                        err instanceof Error ? err.message : String(err)
+                    }`
+                });
             }
         },
         [socket, partyId, ensureRecvTransport, setStateSafe]
@@ -475,6 +502,8 @@ export const useStreamingChannel = (
             if (!claim.ok) {
                 throw new Error('streamer slot taken');
             }
+            // Fresh attempt: drop any stale publish error from a prior share.
+            setStateSafe({ produceError: null });
 
             // Get the screen capture. Cap framerate/resolution to keep the
             // streamer's encoder load (and thus lag) down; ask for audio with
@@ -608,8 +637,14 @@ export const useStreamingChannel = (
                         const producer = await transport.produce({ track });
                         producersRef.current.push(producer);
                     }
-                } catch {
-                    // ignore individual track failure; we still publish the others
+                } catch (err) {
+                    // Keep publishing the other tracks, but surface which kind
+                    // failed so a missing-audio/video producer is diagnosable.
+                    setStateSafe({
+                        produceError: `${track.kind}: ${
+                            err instanceof Error ? err.message : String(err)
+                        }`
+                    });
                 }
             }
 
