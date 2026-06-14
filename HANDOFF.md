@@ -3,6 +3,15 @@
 ## Project
 Self-hosted **Sync Party** (watch-party app: synced video playback, chat, WebRTC cam/mic). Fork at `slayerduck/sync-party`. We've been adding upload/convert tooling and a screen-share channel.
 
+## GitHub repo / how to connect
+- **Repo:** `slayerduck/sync-party` → https://github.com/slayerduck/sync-party
+- **Clone:**
+  - HTTPS: `git clone https://github.com/slayerduck/sync-party.git`
+  - SSH: `git clone git@github.com:slayerduck/sync-party.git` (requires your SSH key added to GitHub)
+- **Auth:** GitHub no longer accepts account passwords over HTTPS — use a **Personal Access Token** as the password when prompted (GitHub → Settings → Developer settings → Personal access tokens), or use SSH keys.
+- **Production server already has it cloned** at `/home/homie/sync-party-fork` (remote `origin` points at GitHub). On the box: `cd /home/homie/sync-party-fork && git pull`.
+- In Claude Code on the web, each session **clones the repo fresh automatically** — no manual connect needed; just work and push.
+
 ## Repo / branches
 - Working branch: `claude/increase-upload-limits-QcVbG`. Every change is also pushed to **`master`**.
 - Production server: `homie.slayerduck.com` (AlmaLinux 9), deployed at `/home/homie/sync-party-fork`, behind nginx (basic-auth), run via **pm2 fork mode, single instance** (required — streaming state is in-process). Deploy with `git pull && npm run prod:deploy`. Node 22 required (mediasoup).
@@ -19,11 +28,12 @@ Self-hosted **Sync Party** (watch-party app: synced video playback, chat, WebRTC
 - Screen-share "each device starts its own, neither sees the other" → was keyed by **userId**; now keyed by **socket id** (same account on 2 devices works).
 - pm2 cluster / split-brain diagnostics added to server logs (`pid=`, `roomSockets=`).
 - Pre-existing `PUT /api/party` crash on malformed body (guarded).
+- Viewer screen-share **audio** not playing → rebuild remote MediaStream on each new track + force unmute/`play()` + "Enable sound" fallback button + audio fields in diagnostics. (Firefox streamer still can't capture system audio — browser limit; stream from Chrome and tick "Share tab/system audio".)
 
 ## Currently working on (screen-share polish)
-- **Audio**: Firefox can't capture system audio at all → no sound. Fix = stream from **Chrome** + tick "Share tab/system audio". UI now warns when no audio track captured. **Open option:** could add a "share microphone" toggle (works on Firefox) if wanted.
-- **Lag**: just shipped H264 (hardware encode) preference + VP8 fallback, capture capped to 30fps/1080p, 3 Mbps ceiling + "detail" content hint. **Needs real-world retest after deploy.** If still laggy, easy knobs: drop to 15fps / 720p / lower bitrate.
+- **Audio**: viewer playback fixed (above). Remaining limit is browser capture — Firefox can't capture system audio; use Chrome + "Share tab/system audio". **Open option:** add a "share microphone" toggle (works on Firefox) if wanted.
+- **Lag**: shipped H264 (hardware encode) preference + VP8 fallback, capture capped to 30fps/1080p, 3 Mbps ceiling + "detail" content hint. **Needs real-world retest after deploy.** If still laggy, easy knobs: drop to 15fps / 720p / lower bitrate.
 - **Proposed next:** add the negotiated codec (H264 vs VP8) to the diagnostics panel to confirm hardware encode engaged.
 
 ## Latest commit
-`76b124f` — "Streaming: H264 + capture caps to cut lag; flag missing screen audio"
+`4c4f62f` — "Streaming: fix viewer audio playback"
