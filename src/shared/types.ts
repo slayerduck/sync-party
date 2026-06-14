@@ -179,6 +179,29 @@ export type WebRtcJoinLeaveMessage = {
     partyId: string;
 };
 
+// ---- Screen-sharing channel (mediasoup SFU) ----
+
+export type StreamingProducerInfo = {
+    producerId: string;
+    userId: string;
+    kind: 'audio' | 'video';
+};
+
+export type StreamingStreamerChangedMessage = {
+    partyId: string;
+    streamerUserId: string | null;
+};
+
+export type StreamingNewProducerMessage = {
+    partyId: string;
+    producer: StreamingProducerInfo;
+};
+
+export type StreamingProducerClosedMessage = {
+    partyId: string;
+    producerId: string;
+};
+
 export type SyncStatusIncomingMessage = {
     [userId: string]: SyncStatusPartyMember;
 };

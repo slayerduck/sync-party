@@ -33,9 +33,13 @@ import { authenticateSocketRequest } from './middleware/socketMiddleware.js';
 
 import { authController } from './controllers/authController.js';
 import { fileController } from './controllers/fileController.js';
+import os from 'os';
+
 import { conversionController } from './controllers/conversionController.js';
 import { zipUploadController } from './controllers/zipUploadController.js';
 import { getConversionProgress } from './conversionProgress.js';
+import { streamingSfu } from './streaming/sfu.js';
+import { buildIceServers } from './streaming/iceServers.js';
 import { MediaItem } from './models/MediaItem.js';
 import { mediaItemController } from './controllers/mediaItemController.js';
 import { userController } from './controllers/userController.js';
@@ -100,6 +104,20 @@ try {
     await sequelize.sync({ alter: true });
 } catch (error) {
     logger.log('error', error);
+}
+
+// Streaming SFU (mediasoup workers)
+try {
+    const workerCount =
+        Number(process.env.MEDIASOUP_WORKERS) ||
+        Math.max(1, Math.min(2, os.cpus().length));
+    await streamingSfu.init(workerCount);
+    logger.log(
+        'info',
+        `mediasoup SFU ready (${workerCount} worker${workerCount > 1 ? 's' : ''})`
+    );
+} catch (sfuErr) {
+    logger.log('error', 'mediasoup SFU failed to init', sfuErr);
 }
 
 // HTTP(S) SERVER
@@ -398,6 +416,222 @@ io.on('connection', (socket: Socket) => {
         });
     });
 
+    // -------- Screen-sharing channel (mediasoup SFU) --------
+
+    const streamingPartyIds = new Set<string>();
+
+    const ack = (cb: unknown, payload: unknown): void => {
+        if (typeof cb === 'function') {
+            (cb as (p: unknown) => void)(payload);
+        }
+    };
+
+    socket.on(
+        'streaming:join',
+        async (data: { partyId: string }, cb?: unknown) => {
+            try {
+                const rtpCapabilities =
+                    await streamingSfu.getRouterRtpCapabilities(data.partyId);
+                streamingPartyIds.add(data.partyId);
+                const producers = streamingSfu
+                    .listProducers(data.partyId)
+                    .filter((p) => p.userId !== socketUserId);
+                ack(cb, {
+                    ok: true,
+                    rtpCapabilities,
+                    streamerUserId: streamingSfu.getStreamerUserId(
+                        data.partyId
+                    ),
+                    producers
+                });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on(
+        'streaming:claimStreamer',
+        (data: { partyId: string }, cb?: unknown) => {
+            const ok = streamingSfu.claimStreamer(data.partyId, socketUserId);
+            if (ok) {
+                io.to(data.partyId).emit('streaming:streamerChanged', {
+                    partyId: data.partyId,
+                    streamerUserId: socketUserId
+                });
+            }
+            ack(cb, { ok });
+        }
+    );
+
+    socket.on(
+        'streaming:releaseStreamer',
+        (data: { partyId: string }, cb?: unknown) => {
+            const released = streamingSfu.releaseStreamerIfHeld(
+                data.partyId,
+                socketUserId
+            );
+            if (released) {
+                io.to(data.partyId).emit('streaming:streamerChanged', {
+                    partyId: data.partyId,
+                    streamerUserId: null
+                });
+            }
+            ack(cb, { ok: true });
+        }
+    );
+
+    socket.on(
+        'streaming:createTransport',
+        async (
+            data: { partyId: string; direction: 'send' | 'recv' },
+            cb?: unknown
+        ) => {
+            try {
+                const info = await streamingSfu.createWebRtcTransport(
+                    data.partyId,
+                    socketUserId,
+                    data.direction
+                );
+                ack(cb, { ok: true, transport: info });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on(
+        'streaming:connectTransport',
+        async (
+            data: {
+                partyId: string;
+                transportId: string;
+                // mediasoup-client DtlsParameters
+                dtlsParameters: Parameters<
+                    typeof streamingSfu.connectTransport
+                >[3];
+            },
+            cb?: unknown
+        ) => {
+            try {
+                await streamingSfu.connectTransport(
+                    data.partyId,
+                    socketUserId,
+                    data.transportId,
+                    data.dtlsParameters
+                );
+                ack(cb, { ok: true });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on(
+        'streaming:produce',
+        async (
+            data: {
+                partyId: string;
+                transportId: string;
+                kind: 'audio' | 'video';
+                rtpParameters: Parameters<typeof streamingSfu.produce>[4];
+            },
+            cb?: unknown
+        ) => {
+            try {
+                const result = await streamingSfu.produce(
+                    data.partyId,
+                    socketUserId,
+                    data.transportId,
+                    data.kind,
+                    data.rtpParameters
+                );
+                io.to(data.partyId).emit('streaming:newProducer', {
+                    partyId: data.partyId,
+                    producer: {
+                        producerId: result.producerId,
+                        userId: socketUserId,
+                        kind: data.kind
+                    }
+                });
+                ack(cb, { ok: true, producerId: result.producerId });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on(
+        'streaming:consume',
+        async (
+            data: {
+                partyId: string;
+                producerId: string;
+                rtpCapabilities: Parameters<typeof streamingSfu.consume>[3];
+            },
+            cb?: unknown
+        ) => {
+            try {
+                const c = await streamingSfu.consume(
+                    data.partyId,
+                    socketUserId,
+                    data.producerId,
+                    data.rtpCapabilities
+                );
+                ack(cb, { ok: true, consumer: c });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on(
+        'streaming:resumeConsumer',
+        async (
+            data: { partyId: string; consumerId: string },
+            cb?: unknown
+        ) => {
+            try {
+                await streamingSfu.resumeConsumer(
+                    data.partyId,
+                    socketUserId,
+                    data.consumerId
+                );
+                ack(cb, { ok: true });
+            } catch (err) {
+                ack(cb, { ok: false, error: String(err) });
+            }
+        }
+    );
+
+    socket.on('streaming:leave', (data: { partyId: string }) => {
+        const wasStreamer =
+            streamingSfu.getStreamerUserId(data.partyId) === socketUserId;
+        streamingSfu.leaveRoom(data.partyId, socketUserId);
+        streamingPartyIds.delete(data.partyId);
+        if (wasStreamer) {
+            io.to(data.partyId).emit('streaming:streamerChanged', {
+                partyId: data.partyId,
+                streamerUserId: null
+            });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        for (const partyId of streamingPartyIds) {
+            const wasStreamer =
+                streamingSfu.getStreamerUserId(partyId) === socketUserId;
+            streamingSfu.leaveRoom(partyId, socketUserId);
+            if (wasStreamer) {
+                io.to(partyId).emit('streaming:streamerChanged', {
+                    partyId,
+                    streamerUserId: null
+                });
+            }
+        }
+        streamingPartyIds.clear();
+    });
+
     // Disconnect
     socket.on('disconnected', () => {
         logger.log('info', `Web Sockets: User disconnected: ${socketUserId}`);
@@ -613,6 +847,11 @@ app.get(
         });
     }
 );
+
+app.get('/api/iceServers', mustBeAuthenticated, (req, res) => {
+    const userId = req.user?.id ?? 'anon';
+    return res.json({ iceServers: buildIceServers(userId) });
+});
 
 // Users
 
