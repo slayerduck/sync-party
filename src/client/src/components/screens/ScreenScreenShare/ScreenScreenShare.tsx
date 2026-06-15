@@ -267,6 +267,14 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                                     : '—'}
                             </span>
                         </div>
+                        {state.isStreamer && (
+                            <div>
+                                surface:{' '}
+                                <span className="text-gray-200">
+                                    {state.captureSurface ?? 'unknown'}
+                                </span>
+                            </div>
+                        )}
                         {state.produceError && (
                             <div className="col-span-2 sm:col-span-3 break-words">
                                 publish error:{' '}
@@ -375,7 +383,11 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                     <div>
                         {!state.audioCaptured && (
                             <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm text-yellow-200">
-                                {t('screenShare.noAudio')}
+                                {state.captureSurface === 'window'
+                                    ? t('screenShare.noAudioWindow')
+                                    : state.captureSurface === 'monitor'
+                                    ? t('screenShare.noAudioScreen')
+                                    : t('screenShare.noAudio')}
                             </div>
                         )}
                         <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden mb-4">

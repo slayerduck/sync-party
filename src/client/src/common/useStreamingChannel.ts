@@ -77,6 +77,12 @@ export type StreamingState = {
     recvState: string;
     /** When streaming: did the screen capture include an audio track? */
     audioCaptured: boolean;
+    /**
+     * When streaming: which surface was captured — 'monitor' (entire screen),
+     * 'window' (a single app window — no audio possible), 'browser' (a tab),
+     * or null if unknown. Used to explain a missing audio track.
+     */
+    captureSurface: string | null;
     /** When viewing: does the incoming stream carry an audio track? */
     remoteHasAudio: boolean;
     /** Last error while publishing a track (streamer), per kind. */
@@ -110,6 +116,7 @@ const noControls: StreamingControls = {
         sendState: 'new',
         recvState: 'new',
         audioCaptured: true,
+        captureSurface: null,
         remoteHasAudio: false,
         produceError: null,
         consumeError: null
@@ -148,6 +155,8 @@ export const useStreamingChannel = (
     const remoteStreamRef = useRef<MediaStream | null>(null);
     const producersRef = useRef<Producer[]>([]);
     const consumersRef = useRef<Consumer[]>([]);
+    // Producer ids with a consume in flight, to dedupe concurrent consumes.
+    const consumingRef = useRef<Set<string>>(new Set());
     const iceServersRef = useRef<IceServer[]>([]);
     // True once the initial join completed, so a later socket 'connect' is
     // recognised as a RECONNECT and triggers a re-join + resync.
@@ -198,7 +207,8 @@ export const useStreamingChannel = (
         setStateSafe({
             isStreamer: false,
             localStream: null,
-            produceError: null
+            produceError: null,
+            captureSurface: null
         });
     }, [setStateSafe]);
 
@@ -211,6 +221,7 @@ export const useStreamingChannel = (
             }
         }
         consumersRef.current = [];
+        consumingRef.current.clear();
         remoteStreamRef.current = null;
         setStateSafe({
             remoteStream: null,
@@ -273,6 +284,19 @@ export const useStreamingChannel = (
     const consumeProducer = useCallback(
         async (producer: StreamingProducerInfo): Promise<void> => {
             if (!socket || !partyId || !deviceRef.current) return;
+            // Never consume the same producer twice. It can appear in the join
+            // list AND arrive via a newProducer event (or during a reconnect),
+            // and a duplicate consumer means a second copy of the track — i.e.
+            // the audio plays twice. Guard against both already-consumed and
+            // concurrently-in-flight consumes of the same producer id.
+            const pid = producer.producerId;
+            if (
+                consumersRef.current.some((c) => c.producerId === pid) ||
+                consumingRef.current.has(pid)
+            ) {
+                return;
+            }
+            consumingRef.current.add(pid);
             try {
                 const transport = await ensureRecvTransport();
                 const res = await emitAck<
@@ -335,6 +359,8 @@ export const useStreamingChannel = (
                         err instanceof Error ? err.message : String(err)
                     }`
                 });
+            } finally {
+                consumingRef.current.delete(pid);
             }
         },
         [socket, partyId, ensureRecvTransport, setStateSafe]
@@ -702,10 +728,18 @@ export const useStreamingChannel = (
                 });
             }
 
+            // displaySurface tells us what was picked: 'monitor' (entire
+            // screen), 'window' (single app window — browsers can't capture
+            // its audio), or 'browser' (a tab). Used to explain missing audio.
+            const settings = (videoTrack?.getSettings() ?? {}) as {
+                displaySurface?: string;
+            };
+
             setStateSafe({
                 isStreamer: true,
                 localStream: stream,
-                audioCaptured: stream.getAudioTracks().length > 0
+                audioCaptured: stream.getAudioTracks().length > 0,
+                captureSurface: settings.displaySurface ?? null
             });
         },
         [socket, partyId, setStateSafe]

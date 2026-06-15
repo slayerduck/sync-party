@@ -168,9 +168,13 @@ export const translations = {
                     'No one is sharing right now. Share your screen and everyone here will see it.',
                 diagnostics: 'Connection diagnostics',
                 noAudio:
-                    'No audio is being shared. A single window has no audio in any browser — to send sound, use Chrome and share a "Chrome Tab" or "Entire Screen", ticking "Share tab/system audio" in the picker. Or enable "Share my microphone" before sharing.',
+                    'No audio is being shared. Use Chrome and share a "Chrome Tab" or "Entire Screen", ticking "Share tab/system audio" in the picker. Or enable "Share my microphone" before sharing.',
+                noAudioWindow:
+                    'You are sharing a single window, and browsers cannot capture a window\'s (or a game\'s) audio. To stream game/app sound, stop and share "Entire Screen" with "Share system audio" ticked (Windows/ChromeOS), or enable "Share my microphone".',
+                noAudioScreen:
+                    'No audio captured. Re-share "Entire Screen" and tick "Share system audio" in the picker (Windows/ChromeOS only). On macOS/Linux Chrome cannot capture system audio — use "Share my microphone" or a virtual audio device.',
                 audioTip:
-                    'For sound: share a "Chrome Tab" or "Entire Screen" (not a single window) and tick "Share tab/system audio". A window share is video-only.',
+                    'For sound: share a "Chrome Tab" (tick "Share tab audio") or "Entire Screen" (tick "Share system audio"). A single window — including most games — is video-only.',
                 shareMic: 'Also share my microphone',
                 enableSound: 'Enable sound',
                 mute: 'Mute',
