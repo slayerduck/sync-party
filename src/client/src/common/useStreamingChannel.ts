@@ -149,6 +149,9 @@ export const useStreamingChannel = (
     const producersRef = useRef<Producer[]>([]);
     const consumersRef = useRef<Consumer[]>([]);
     const iceServersRef = useRef<IceServer[]>([]);
+    // True once the initial join completed, so a later socket 'connect' is
+    // recognised as a RECONNECT and triggers a re-join + resync.
+    const joinedOnceRef = useRef(false);
 
     // Track whether this hook instance is still active so we can ignore
     // late async resolutions after teardown.
@@ -399,7 +402,48 @@ export const useStreamingChannel = (
             }
         };
 
-        const onConnect = (): void => setStateSafe({ socketConnected: true });
+        // After a reconnect the socket has a NEW id, so the server's room
+        // membership, our peer, transports and any streamer slot we held are
+        // all gone. Re-enter the channel from scratch: drop a dead streamer
+        // role, tear down the dead recv transport, rejoin to resync the
+        // current streamer, and re-consume whatever is live now.
+        const rejoinAfterReconnect = async (): Promise<void> => {
+            try {
+                if (isStreamerRef.current) closeLocal();
+                closeRemote();
+                if (recvTransportRef.current) {
+                    try {
+                        recvTransportRef.current.close();
+                    } catch {
+                        // best effort
+                    }
+                    recvTransportRef.current = null;
+                }
+                recvTransportPromiseRef.current = null;
+
+                const joinRes = await emitAck<
+                    AckRes<{
+                        streamerUserId: string | null;
+                        producers: StreamingProducerInfo[];
+                    }>
+                >(socket, 'streaming:join', { partyId });
+                if (cancelled || !joinRes.ok) return;
+                setStateSafe({
+                    streamerUserId: joinRes.streamerUserId,
+                    error: null
+                });
+                if (!isStreamerRef.current) {
+                    for (const p of joinRes.producers) consumeProducer(p);
+                }
+            } catch (err) {
+                setStateSafe({ error: String(err) });
+            }
+        };
+
+        const onConnect = (): void => {
+            setStateSafe({ socketConnected: true });
+            if (joinedOnceRef.current) rejoinAfterReconnect();
+        };
         const onDisconnect = (): void =>
             setStateSafe({ socketConnected: false });
 
@@ -437,6 +481,7 @@ export const useStreamingChannel = (
                     routerRtpCapabilities: joinRes.rtpCapabilities
                 });
                 deviceRef.current = device;
+                joinedOnceRef.current = true;
                 setStateSafe({
                     streamerUserId: joinRes.streamerUserId,
                     error: null
@@ -471,6 +516,7 @@ export const useStreamingChannel = (
                 recvTransportRef.current = null;
             }
             recvTransportPromiseRef.current = null;
+            joinedOnceRef.current = false;
             try {
                 socket.emit('streaming:leave', { partyId });
             } catch {
@@ -486,21 +532,19 @@ export const useStreamingChannel = (
             if (!socket || !partyId || !deviceRef.current) {
                 throw new Error('not ready');
             }
-            // Someone else holds the slot (and it isn't us). The server is the
-            // authority, but bail early for a cleaner UX.
-            if (state.streamerUserId && !state.isStreamer) {
-                throw new Error('another user is already streaming');
-            }
-
-            const claim = await emitAck<AckRes>(
-                socket,
-                'streaming:claimStreamer',
-                {
-                    partyId
-                }
-            );
+            // Let the server be the sole authority on the slot — don't bail
+            // on our possibly-stale local view, so a missed streamerChanged
+            // can't permanently block taking over an idle channel.
+            const claim = await emitAck<{
+                ok: boolean;
+                streamerUserId?: string | null;
+                error?: string;
+            }>(socket, 'streaming:claimStreamer', { partyId });
             if (!claim.ok) {
-                throw new Error('streamer slot taken');
+                // Sync to the server's truth so the UI reflects who really has
+                // the slot (and re-enables once they stop).
+                setStateSafe({ streamerUserId: claim.streamerUserId ?? null });
+                throw new Error('another user is already streaming');
             }
             // Fresh attempt: drop any stale publish error from a prior share.
             setStateSafe({ produceError: null });
@@ -664,7 +708,7 @@ export const useStreamingChannel = (
                 audioCaptured: stream.getAudioTracks().length > 0
             });
         },
-        [socket, partyId, state.streamerUserId, state.isStreamer, setStateSafe]
+        [socket, partyId, setStateSafe]
     );
 
     const stopSharing = useCallback(async (): Promise<void> => {

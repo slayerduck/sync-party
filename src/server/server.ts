@@ -530,7 +530,12 @@ io.on('connection', (socket: Socket) => {
                 'info',
                 `streaming:claimStreamer channel=${data.partyId} user=${socketUserId} peer=${socket.id} granted=${ok} pid=${process.pid} broadcastTo=${roomSize} sockets`
             );
-            ack(cb, { ok });
+            // Return the authoritative current streamer so a client whose view
+            // is stale (e.g. missed a streamerChanged broadcast) self-corrects.
+            ack(cb, {
+                ok,
+                streamerUserId: streamingSfu.getStreamerUserId(data.partyId)
+            });
         }
     );
 

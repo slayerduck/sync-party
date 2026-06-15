@@ -172,7 +172,10 @@ export const translations = {
                 audioTip:
                     'For sound: share a "Chrome Tab" or "Entire Screen" (not a single window) and tick "Share tab/system audio". A window share is video-only.',
                 shareMic: 'Also share my microphone',
-                enableSound: 'Enable sound'
+                enableSound: 'Enable sound',
+                mute: 'Mute',
+                unmute: 'Unmute',
+                volume: 'Volume'
             },
             convertUpload: {
                 heading: 'Upload & convert',

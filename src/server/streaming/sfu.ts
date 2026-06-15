@@ -154,11 +154,18 @@ export class StreamingSfu {
 
     /**
      * Claim the single streamer slot for this connection. Returns false if
-     * another connection (even the same user on another device) holds it.
+     * another *live* connection holds it. A slot held by a peer that has since
+     * disconnected (no longer in room.peers) is treated as stale and stolen,
+     * so a dropped streamer or a missed streamerChanged broadcast can't wedge
+     * the channel shut forever.
      */
     claimStreamer(channelId: string, peerId: string, userId: string): boolean {
         const room = this.rooms.get(channelId);
         if (!room) return false;
+        // Free a stale slot whose holder's connection is gone.
+        if (room.streamer && !room.peers.has(room.streamer.peerId)) {
+            room.streamer = null;
+        }
         if (room.streamer && room.streamer.peerId !== peerId) {
             return false;
         }

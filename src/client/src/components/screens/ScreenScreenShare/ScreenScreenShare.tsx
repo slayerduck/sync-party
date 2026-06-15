@@ -10,7 +10,9 @@ import {
     faArrowLeft,
     faDesktop,
     faStop,
-    faCircleDot
+    faCircleDot,
+    faVolumeHigh,
+    faVolumeXmark
 } from '@fortawesome/free-solid-svg-icons';
 
 import { GLOBAL_STREAM_CHANNEL } from '../../../../../shared/types';
@@ -37,6 +39,8 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
     const [errorBanner, setErrorBanner] = useState<string | null>(null);
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [shareMic, setShareMic] = useState(false);
+    const [volume, setVolume] = useState(1);
+    const [muted, setMuted] = useState(false);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -67,18 +71,31 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
             const audioTracks = stream.getAudioTracks();
             if (audioTracks.length > 0) {
                 audioEl.srcObject = new MediaStream(audioTracks);
-                audioEl.muted = false;
+                audioEl.volume = volume;
+                audioEl.muted = muted;
                 audioEl
                     .play()
                     .then(() => setAudioBlocked(false))
                     .catch(() => setAudioBlocked(true));
             }
         }
+        // volume/muted are applied by their own effect; only re-run this on a
+        // new stream.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.remoteStream]);
+
+    // Apply the viewer's volume / mute choices to the audio sink.
+    useEffect(() => {
+        const el = remoteAudioRef.current;
+        if (!el) return;
+        el.volume = volume;
+        el.muted = muted;
+    }, [volume, muted]);
 
     const enableSound = (): void => {
         const el = remoteAudioRef.current;
         if (!el) return;
+        setMuted(false);
         el.muted = false;
         el.play()
             .then(() => setAudioBlocked(false))
@@ -294,6 +311,17 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                                 playsInline
                                 muted
                                 controls
+                                // Keep the dedicated audio sink in lock-step
+                                // with the picture so the native pause/play
+                                // controls also stop/start the sound.
+                                onPlay={(): void => {
+                                    remoteAudioRef.current
+                                        ?.play()
+                                        .catch(() => undefined);
+                                }}
+                                onPause={(): void =>
+                                    remoteAudioRef.current?.pause()
+                                }
                                 className="w-full max-h-[75vh] bg-black object-contain"
                             />
                         </div>
@@ -303,6 +331,42 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                             autoPlay
                             className="hidden"
                         />
+                        {state.remoteHasAudio && (
+                            <div className="mt-3 flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                                <button
+                                    type="button"
+                                    onClick={(): void => setMuted((m) => !m)}
+                                    title={
+                                        muted
+                                            ? t('screenShare.unmute')
+                                            : t('screenShare.mute')
+                                    }
+                                    className="px-2 py-1 rounded hover:bg-white/10 text-gray-200"
+                                >
+                                    <FontAwesomeIcon
+                                        icon={
+                                            muted || volume === 0
+                                                ? faVolumeXmark
+                                                : faVolumeHigh
+                                        }
+                                    />
+                                </button>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={1}
+                                    step={0.01}
+                                    value={muted ? 0 : volume}
+                                    onChange={(e): void => {
+                                        const v = Number(e.target.value);
+                                        setVolume(v);
+                                        setMuted(v === 0);
+                                    }}
+                                    aria-label={t('screenShare.volume')}
+                                    className="w-40 accent-purple-500"
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
