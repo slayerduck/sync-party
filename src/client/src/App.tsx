@@ -24,6 +24,7 @@ import { ScreenMediaItems } from './components/screens/ScreenMediaItems/ScreenMe
 import { ScreenProcessingFiles } from './components/screens/ScreenProcessingFiles/ScreenProcessingFiles';
 import { ScreenConvertUpload } from './components/screens/ScreenConvertUpload/ScreenConvertUpload';
 import { ScreenScreenShare } from './components/screens/ScreenScreenShare/ScreenScreenShare';
+import { ScreenObsStream } from './components/screens/ScreenObsStream/ScreenObsStream';
 
 import type { Socket } from 'socket.io-client';
 import type { ChatMessage, RootAppState } from '../../shared/types';
@@ -164,6 +165,10 @@ export const App = (): JSX.Element => {
                         <Route
                             path="/screenshare"
                             element={<ScreenScreenShare socket={socket} />}
+                        />
+                        <Route
+                            path="/obs"
+                            element={<ScreenObsStream socket={socket} />}
                         />
                         <Route
                             path="/"

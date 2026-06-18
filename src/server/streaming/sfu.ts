@@ -1,4 +1,13 @@
 import * as mediasoup from 'mediasoup';
+import { randomUUID } from 'crypto';
+import * as sdpTransform from 'sdp-transform';
+
+import {
+    buildProduceParams,
+    buildAnswerSdp,
+    extractDtlsFingerprints
+} from './whip.js';
+
 type Worker = mediasoup.types.Worker;
 type Router = mediasoup.types.Router;
 type WebRtcTransport = mediasoup.types.WebRtcTransport;
@@ -77,11 +86,20 @@ type ProducerInfo = {
 
 const WORKER_LOG_LEVEL: mediasoup.types.WorkerLogLevel = 'warn';
 
+// Pseudo identity for an OBS/WHIP ingest (it isn't a socket peer).
+const WHIP_PEER_ID = 'whip';
+const WHIP_USER_ID = 'OBS';
+
 export class StreamingSfu {
     private workers: Worker[] = [];
     private rooms = new Map<string, Room>();
     private nextWorkerIdx = 0;
     private ready = false;
+    // WHIP resource id -> the channel/peer it ingests into, for DELETE.
+    private whipResources = new Map<
+        string,
+        { channelId: string; peerId: string }
+    >();
 
     /** Spin up workers; safe to call once at server startup. */
     async init(numWorkers = 1): Promise<void> {
@@ -223,6 +241,141 @@ export class StreamingSfu {
             }
         }
         return out;
+    }
+
+    // ---- WHIP (OBS) ingest --------------------------------------------------
+
+    /**
+     * Ingest an OBS WHIP SDP offer into the channel as mediasoup producers.
+     * Single streamer: throws if the slot is already held by a live peer.
+     * Returns the SDP answer, a resource id (for later DELETE), and the new
+     * producer infos (so the caller can broadcast them to viewers).
+     */
+    async ingestWhip(
+        channelId: string,
+        offerSdp: string
+    ): Promise<{
+        resourceId: string;
+        answerSdp: string;
+        producers: ProducerInfo[];
+    }> {
+        const room = await this.getOrCreateRoom(channelId);
+        if (room.streamer && room.peers.has(room.streamer.peerId)) {
+            throw new Error('already streaming');
+        }
+        // Clear any leftover/stale WHIP peer before starting a new ingest.
+        this.closeWhipPeer(room);
+
+        const peer = this.getOrCreatePeer(room, WHIP_PEER_ID, WHIP_USER_ID);
+        const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
+        const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
+        const transport = await room.router.createWebRtcTransport({
+            listenIps: [{ ip: listenIp, announcedIp }],
+            enableUdp: true,
+            enableTcp: true,
+            preferUdp: true,
+            initialAvailableOutgoingBitrate: 1_000_000
+        });
+        // OBS publishes into this transport; the server receives the media.
+        peer.sendTransport = transport;
+
+        try {
+            const offer = sdpTransform.parse(offerSdp);
+            const fingerprints = extractDtlsFingerprints(offer);
+            if (!fingerprints.length) {
+                throw new Error('offer has no DTLS fingerprint');
+            }
+            // OBS offered actpass; make it the DTLS client (we stay passive).
+            await transport.connect({
+                dtlsParameters: { role: 'client', fingerprints }
+            });
+
+            const built = [];
+            for (const m of offer.media) {
+                const b = buildProduceParams(room.router, m);
+                if (!b) continue;
+                const producer = await transport.produce({
+                    kind: b.kind,
+                    rtpParameters: b.rtpParameters
+                });
+                peer.producers.set(producer.id, producer);
+                built.push(b);
+            }
+            if (!built.length) {
+                throw new Error('no compatible media in offer');
+            }
+
+            const answerSdp = buildAnswerSdp(transport, built);
+            const resourceId = randomUUID();
+            this.whipResources.set(resourceId, {
+                channelId,
+                peerId: WHIP_PEER_ID
+            });
+            room.streamer = { peerId: WHIP_PEER_ID, userId: WHIP_USER_ID };
+
+            const producers: ProducerInfo[] = [...peer.producers.values()]
+                .filter((p) => !p.closed)
+                .map((p) => ({
+                    producerId: p.id,
+                    peerId: WHIP_PEER_ID,
+                    userId: WHIP_USER_ID,
+                    kind: p.kind
+                }));
+            return { resourceId, answerSdp, producers };
+        } catch (err) {
+            this.closeWhipPeer(room);
+            throw err;
+        }
+    }
+
+    /**
+     * Stop a WHIP ingest by resource id. Returns the channel and the closed
+     * producer ids so the caller can broadcast producerClosed/streamerChanged.
+     */
+    stopWhip(
+        resourceId: string
+    ): { channelId: string; producerIds: string[] } | null {
+        const res = this.whipResources.get(resourceId);
+        if (!res) return null;
+        this.whipResources.delete(resourceId);
+        const room = this.rooms.get(res.channelId);
+        if (!room) return { channelId: res.channelId, producerIds: [] };
+        const peer = room.peers.get(res.peerId);
+        const producerIds = peer ? [...peer.producers.keys()] : [];
+        this.closeWhipPeer(room);
+        if (room.peers.size === 0) {
+            try {
+                room.router.close();
+            } catch {
+                // best effort
+            }
+            this.rooms.delete(res.channelId);
+        }
+        return { channelId: res.channelId, producerIds };
+    }
+
+    /** Close the WHIP peer (producers + ingest transport) and free the slot. */
+    private closeWhipPeer(room: Room): void {
+        const peer = room.peers.get(WHIP_PEER_ID);
+        if (peer) {
+            for (const p of peer.producers.values()) {
+                try {
+                    p.close();
+                } catch {
+                    // best effort
+                }
+            }
+            peer.producers.clear();
+            try {
+                peer.sendTransport?.close();
+            } catch {
+                // best effort
+            }
+            room.peers.delete(WHIP_PEER_ID);
+        }
+        if (room.streamer && room.streamer.peerId === WHIP_PEER_ID) {
+            room.streamer = null;
+        }
     }
 
     async createWebRtcTransport(

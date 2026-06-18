@@ -40,7 +40,7 @@ import { zipUploadController } from './controllers/zipUploadController.js';
 import { getConversionProgress } from './conversionProgress.js';
 import { streamingSfu } from './streaming/sfu.js';
 import { buildIceServers } from './streaming/iceServers.js';
-import { GLOBAL_STREAM_CHANNEL } from '../shared/types.js';
+import { GLOBAL_STREAM_CHANNEL, GLOBAL_OBS_CHANNEL } from '../shared/types.js';
 import { MediaItem } from './models/MediaItem.js';
 import { mediaItemController } from './controllers/mediaItemController.js';
 import { userController } from './controllers/userController.js';
@@ -456,8 +456,14 @@ io.on('connection', (socket: Socket) => {
         }
     };
 
+    // The app-wide channels are not real parties, so they bypass the
+    // membership check; any authenticated socket may join them.
+    const isGlobalChannel = (channelId: string): boolean =>
+        channelId === GLOBAL_STREAM_CHANNEL ||
+        channelId === GLOBAL_OBS_CHANNEL;
+
     const canAccessChannel = async (channelId: string): Promise<boolean> => {
-        if (channelId === GLOBAL_STREAM_CHANNEL) return true;
+        if (isGlobalChannel(channelId)) return true;
         return isPartyMember(channelId);
     };
 
@@ -469,9 +475,9 @@ io.on('connection', (socket: Socket) => {
                     ack(cb, { ok: false, error: 'no channel access' });
                     return;
                 }
-                // The global channel has no party room to piggyback on, so
-                // join it explicitly to receive room broadcasts.
-                if (data.partyId === GLOBAL_STREAM_CHANNEL) {
+                // The global channels have no party room to piggyback on, so
+                // join explicitly to receive room broadcasts.
+                if (isGlobalChannel(data.partyId)) {
                     socket.join(data.partyId);
                 }
                 const rtpCapabilities =
@@ -681,9 +687,9 @@ io.on('connection', (socket: Socket) => {
         const wasStreamer = streamingSfu.isStreamer(data.partyId, socket.id);
         streamingSfu.leaveRoom(data.partyId, socket.id);
         streamingPartyIds.delete(data.partyId);
-        // The global channel was joined explicitly; leave its room so we
-        // stop receiving its broadcasts. Party rooms stay (used elsewhere).
-        if (data.partyId === GLOBAL_STREAM_CHANNEL) {
+        // The global channels were joined explicitly; leave their room so we
+        // stop receiving broadcasts. Party rooms stay (used elsewhere).
+        if (isGlobalChannel(data.partyId)) {
             socket.leave(data.partyId);
         }
         if (wasStreamer) {
@@ -927,6 +933,106 @@ app.get(
 app.get('/api/iceServers', mustBeAuthenticated, (req, res) => {
     const userId = req.user?.id ?? 'anon';
     return res.json({ iceServers: buildIceServers(userId) });
+});
+
+// ---- OBS / WHIP ingest -----------------------------------------------------
+// OBS publishes to the global OBS channel over WHIP; browser viewers watch it
+// via the same SFU consume path as screen share. Auth is a shared bearer key
+// (OBS_STREAM_KEY), NOT the session cookie, since OBS can't carry one.
+
+const whipStreamKey = (): string => process.env.OBS_STREAM_KEY || '';
+
+const whipAuthorized = (req: express.Request): boolean => {
+    const key = whipStreamKey();
+    if (!key) return false; // ingest disabled until a key is configured
+    const header = String(req.headers['authorization'] || '');
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    return token.length > 0 && token === key;
+};
+
+const absoluteUrl = (req: express.Request, path: string): string => {
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol);
+    const host = String(req.headers['host'] || '');
+    return `${proto}://${host}${path}`;
+};
+
+// WHIP ingest: OBS POSTs an SDP offer, gets an SDP answer back.
+app.post(
+    '/api/whip',
+    express.text({ type: () => true, limit: '2mb' }),
+    async (req, res) => {
+        if (!whipAuthorized(req)) {
+            res.set('WWW-Authenticate', 'Bearer');
+            return res.status(401).send('unauthorized');
+        }
+        const offer = typeof req.body === 'string' ? req.body : '';
+        if (!offer.includes('m=')) {
+            return res.status(400).send('expected an SDP offer body');
+        }
+        try {
+            const { resourceId, answerSdp, producers } =
+                await streamingSfu.ingestWhip(GLOBAL_OBS_CHANNEL, offer);
+            // Notify viewers: a streamer appeared, plus each produced track.
+            io.to(GLOBAL_OBS_CHANNEL).emit('streaming:streamerChanged', {
+                partyId: GLOBAL_OBS_CHANNEL,
+                streamerUserId: 'OBS'
+            });
+            for (const producer of producers) {
+                io.to(GLOBAL_OBS_CHANNEL).emit('streaming:newProducer', {
+                    partyId: GLOBAL_OBS_CHANNEL,
+                    producer
+                });
+            }
+            logger.log(
+                'info',
+                `WHIP ingest started resource=${resourceId} producers=${producers
+                    .map((p) => p.kind)
+                    .join(',')}`
+            );
+            res.status(201);
+            res.set('Location', absoluteUrl(req, `/api/whip/${resourceId}`));
+            res.set('Content-Type', 'application/sdp');
+            return res.send(answerSdp);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/already streaming/.test(msg)) {
+                return res.status(409).send(msg);
+            }
+            logger.log('error', `WHIP ingest failed: ${msg}`);
+            return res.status(400).send(msg);
+        }
+    }
+);
+
+// WHIP teardown: OBS DELETEs the resource when it stops streaming.
+app.delete('/api/whip/:resourceId', (req, res) => {
+    if (!whipAuthorized(req)) {
+        res.set('WWW-Authenticate', 'Bearer');
+        return res.status(401).send('unauthorized');
+    }
+    const result = streamingSfu.stopWhip(req.params.resourceId);
+    if (!result) return res.status(404).send('no such resource');
+    for (const producerId of result.producerIds) {
+        io.to(result.channelId).emit('streaming:producerClosed', {
+            partyId: result.channelId,
+            producerId
+        });
+    }
+    io.to(result.channelId).emit('streaming:streamerChanged', {
+        partyId: result.channelId,
+        streamerUserId: null
+    });
+    logger.log('info', `WHIP ingest stopped resource=${req.params.resourceId}`);
+    return res.status(204).end();
+});
+
+// Ingest setup info for the OBS page (WHIP URL + shared key).
+app.get('/api/obs/info', mustBeAuthenticated, (req, res) => {
+    return res.json({
+        configured: !!whipStreamKey(),
+        url: absoluteUrl(req, '/api/whip'),
+        streamKey: whipStreamKey()
+    });
 });
 
 // Users

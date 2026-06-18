@@ -151,6 +151,9 @@ export const translations = {
                 screenShare: 'Screen share',
                 screenShareTitle:
                     'Open the shared screen-share channel (one streamer, everyone else watches)',
+                obsStream: 'OBS stream',
+                obsStreamTitle:
+                    'Open the OBS stream channel (one person streams from OBS over WHIP, everyone else watches)',
                 editPartyTitle: 'Edit Party',
                 createParty: 'Create'
             },
@@ -180,6 +183,19 @@ export const translations = {
                 mute: 'Mute',
                 unmute: 'Unmute',
                 volume: 'Volume'
+            },
+            obs: {
+                heading: 'OBS stream',
+                idleHint:
+                    'No one is streaming from OBS right now. Set up OBS with the details below and start streaming — everyone here will see it.',
+                notConfigured:
+                    'OBS ingest is not configured on the server yet. Set the OBS_STREAM_KEY environment variable (and proxy /api/whip to the app) to enable it.',
+                setupIntro:
+                    'In OBS: Settings → Stream → Service "WHIP". Paste the server URL and the bearer token below, then click "Start Streaming".',
+                serverLabel: 'WHIP server URL',
+                keyLabel: 'Bearer token (stream key)',
+                setupSteps:
+                    'OBS 30 or newer is required for WHIP. For low latency, set the encoder to H264 and keyframe interval to 1–2s.'
             },
             convertUpload: {
                 heading: 'Upload & convert',

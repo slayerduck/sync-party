@@ -186,6 +186,11 @@ export type WebRtcJoinLeaveMessage = {
 // membership check is bypassed for it).
 export const GLOBAL_STREAM_CHANNEL = 'global-screenshare';
 
+// Single app-wide channel fed by an external encoder (OBS) over WHIP.
+// One OBS streamer, everyone else watches. Like GLOBAL_STREAM_CHANNEL it is
+// not a real party, so the party-membership check is bypassed for it.
+export const GLOBAL_OBS_CHANNEL = 'global-obs';
+
 export type StreamingProducerInfo = {
     producerId: string;
     userId: string;

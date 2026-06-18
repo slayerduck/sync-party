@@ -23,7 +23,8 @@ import {
     faUsers,
     faSpinner,
     faFilm,
-    faDesktop
+    faDesktop,
+    faTowerBroadcast
 } from '@fortawesome/free-solid-svg-icons';
 import { Navigate } from 'react-router-dom';
 
@@ -41,6 +42,7 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
     const [redirectToProcessing, setRedirectToProcessing] = useState(false);
     const [redirectToConvert, setRedirectToConvert] = useState(false);
     const [redirectToScreenShare, setRedirectToScreenShare] = useState(false);
+    const [redirectToObs, setRedirectToObs] = useState(false);
     const [redirectToPartySettings, setRedirectToPartySettings] = useState('');
     const [partyName, setPartyName] = useState('');
     const [creating, setCreating] = useState(false);
@@ -140,6 +142,10 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
 
     if (redirectToScreenShare) {
         return <Navigate to={'/screenshare'}></Navigate>;
+    }
+
+    if (redirectToObs) {
+        return <Navigate to={'/obs'}></Navigate>;
     }
 
     const parties = userParties || [];
@@ -329,6 +335,18 @@ export const ScreenDashboard = (props: Props): JSX.Element | null => {
                                 className="text-gray-400"
                             />
                             {t('dashboard.screenShare')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(): void => setRedirectToObs(true)}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                            title={t('dashboard.obsStreamTitle')}
+                        >
+                            <FontAwesomeIcon
+                                icon={faTowerBroadcast}
+                                className="text-gray-400"
+                            />
+                            {t('dashboard.obsStream')}
                         </button>
                     </div>
 

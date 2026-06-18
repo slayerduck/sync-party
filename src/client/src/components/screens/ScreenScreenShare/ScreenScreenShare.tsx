@@ -4,15 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { Navigate } from 'react-router-dom';
 
 import { useStreamingChannel } from '../../../common/useStreamingChannel';
+import { StreamDiagnostics } from '../../streaming/StreamDiagnostics';
+import { RemoteVideo } from '../../streaming/RemoteVideo';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faArrowLeft,
     faDesktop,
     faStop,
-    faCircleDot,
-    faVolumeHigh,
-    faVolumeXmark
+    faCircleDot
 } from '@fortawesome/free-solid-svg-icons';
 
 import { GLOBAL_STREAM_CHANNEL } from '../../../../../shared/types';
@@ -37,70 +37,8 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
 
     const [redirectHome, setRedirectHome] = useState(false);
     const [errorBanner, setErrorBanner] = useState<string | null>(null);
-    const [audioBlocked, setAudioBlocked] = useState(false);
     const [shareMic, setShareMic] = useState(false);
-    const [volume, setVolume] = useState(1);
-    const [muted, setMuted] = useState(false);
-    const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-    const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
-
-    useEffect(() => {
-        if (!state.remoteStream) return;
-        const stream = state.remoteStream.stream;
-
-        // Picture goes to the <video>. The video element stays MUTED and is
-        // given a video-only stream so its audio path never competes with the
-        // dedicated <audio> element below (avoids double/echoing audio and the
-        // "video element silently drops a remote audio track" Chromium quirk).
-        const videoEl = remoteVideoRef.current;
-        if (videoEl) {
-            videoEl.srcObject = new MediaStream(stream.getVideoTracks());
-            videoEl.muted = true;
-            // A muted video may always autoplay; ignore rejection.
-            videoEl.play().catch(() => undefined);
-        }
-
-        // Sound goes through a dedicated <audio> element. Remote WebRTC audio
-        // is reliably rendered this way, whereas a track added to an already-
-        // playing <video> often produces no sound. Autoplay-with-sound may be
-        // blocked until a user gesture, so surface an "enable sound" button
-        // when play() is rejected.
-        const audioEl = remoteAudioRef.current;
-        if (audioEl) {
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                audioEl.srcObject = new MediaStream(audioTracks);
-                audioEl.volume = volume;
-                audioEl.muted = muted;
-                audioEl
-                    .play()
-                    .then(() => setAudioBlocked(false))
-                    .catch(() => setAudioBlocked(true));
-            }
-        }
-        // volume/muted are applied by their own effect; only re-run this on a
-        // new stream.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.remoteStream]);
-
-    // Apply the viewer's volume / mute choices to the audio sink.
-    useEffect(() => {
-        const el = remoteAudioRef.current;
-        if (!el) return;
-        el.volume = volume;
-        el.muted = muted;
-    }, [volume, muted]);
-
-    const enableSound = (): void => {
-        const el = remoteAudioRef.current;
-        if (!el) return;
-        setMuted(false);
-        el.muted = false;
-        el.play()
-            .then(() => setAudioBlocked(false))
-            .catch(() => setAudioBlocked(true));
-    };
 
     useEffect(() => {
         const el = localVideoRef.current;
@@ -173,126 +111,7 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
                     </div>
                 )}
 
-                {/* Live connection diagnostics — read this to see where it breaks */}
-                <details className="mb-4 rounded-lg border border-white/10 bg-white/5 text-xs">
-                    <summary className="cursor-pointer select-none px-3 py-2 text-gray-300">
-                        {t('screenShare.diagnostics')}
-                    </summary>
-                    <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 font-mono text-gray-400">
-                        <div>
-                            socket:{' '}
-                            <span
-                                className={
-                                    state.socketConnected
-                                        ? 'text-green-400'
-                                        : 'text-red-400'
-                                }
-                            >
-                                {state.socketConnected
-                                    ? 'connected'
-                                    : 'disconnected'}
-                            </span>
-                        </div>
-                        <div>
-                            role:{' '}
-                            <span className="text-gray-200">
-                                {state.isStreamer
-                                    ? 'streamer'
-                                    : isViewer
-                                    ? 'viewer'
-                                    : 'idle'}
-                            </span>
-                        </div>
-                        <div>
-                            streamer:{' '}
-                            <span className="text-gray-200">
-                                {state.streamerUserId
-                                    ? state.streamerUserId.slice(0, 8)
-                                    : 'none'}
-                            </span>
-                        </div>
-                        <div>
-                            TURN:{' '}
-                            <span
-                                className={
-                                    state.turnConfigured
-                                        ? 'text-green-400'
-                                        : 'text-yellow-400'
-                                }
-                            >
-                                {state.turnConfigured
-                                    ? 'configured'
-                                    : 'STUN-only'}
-                            </span>
-                        </div>
-                        <div>
-                            send:{' '}
-                            <span
-                                className={
-                                    state.sendState === 'connected'
-                                        ? 'text-green-400'
-                                        : state.sendState === 'failed'
-                                        ? 'text-red-400'
-                                        : 'text-gray-200'
-                                }
-                            >
-                                {state.sendState}
-                            </span>
-                        </div>
-                        <div>
-                            recv:{' '}
-                            <span
-                                className={
-                                    state.recvState === 'connected'
-                                        ? 'text-green-400'
-                                        : state.recvState === 'failed'
-                                        ? 'text-red-400'
-                                        : 'text-gray-200'
-                                }
-                            >
-                                {state.recvState}
-                            </span>
-                        </div>
-                        <div>
-                            audio:{' '}
-                            <span className="text-gray-200">
-                                {state.isStreamer
-                                    ? state.audioCaptured
-                                        ? 'captured'
-                                        : 'none captured'
-                                    : isViewer
-                                    ? state.remoteHasAudio
-                                        ? 'track present'
-                                        : 'no track'
-                                    : '—'}
-                            </span>
-                        </div>
-                        {state.isStreamer && (
-                            <div>
-                                surface:{' '}
-                                <span className="text-gray-200">
-                                    {state.captureSurface ?? 'unknown'}
-                                </span>
-                            </div>
-                        )}
-                        {state.produceError && (
-                            <div className="col-span-2 sm:col-span-3 break-words">
-                                publish error:{' '}
-                                <span className="text-red-400">
-                                    {state.produceError}
-                                </span>
-                            </div>
-                        )}
-                        {state.consumeError && (
-                            <div className="col-span-2 sm:col-span-3 break-words">
-                                subscribe error:{' '}
-                                <span className="text-red-400">
-                                    {state.consumeError}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </details>
+                <StreamDiagnostics state={state} isViewer={isViewer} />
 
                 {!socket && (
                     <div className="text-sm text-gray-400">
@@ -302,80 +121,10 @@ export const ScreenScreenShare = ({ socket }: Props): ReactElement => {
 
                 {/* Viewer: someone else is streaming */}
                 {isViewer && (
-                    <div>
-                        {audioBlocked && state.remoteHasAudio && (
-                            <button
-                                type="button"
-                                onClick={enableSound}
-                                className="mb-3 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500"
-                            >
-                                {t('screenShare.enableSound')}
-                            </button>
-                        )}
-                        <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
-                            <video
-                                ref={remoteVideoRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                controls
-                                // Keep the dedicated audio sink in lock-step
-                                // with the picture so the native pause/play
-                                // controls also stop/start the sound.
-                                onPlay={(): void => {
-                                    remoteAudioRef.current
-                                        ?.play()
-                                        .catch(() => undefined);
-                                }}
-                                onPause={(): void =>
-                                    remoteAudioRef.current?.pause()
-                                }
-                                className="w-full max-h-[75vh] bg-black object-contain"
-                            />
-                        </div>
-                        {/* Dedicated sink for remote audio (see attach effect) */}
-                        <audio
-                            ref={remoteAudioRef}
-                            autoPlay
-                            className="hidden"
-                        />
-                        {state.remoteHasAudio && (
-                            <div className="mt-3 flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                                <button
-                                    type="button"
-                                    onClick={(): void => setMuted((m) => !m)}
-                                    title={
-                                        muted
-                                            ? t('screenShare.unmute')
-                                            : t('screenShare.mute')
-                                    }
-                                    className="px-2 py-1 rounded hover:bg-white/10 text-gray-200"
-                                >
-                                    <FontAwesomeIcon
-                                        icon={
-                                            muted || volume === 0
-                                                ? faVolumeXmark
-                                                : faVolumeHigh
-                                        }
-                                    />
-                                </button>
-                                <input
-                                    type="range"
-                                    min={0}
-                                    max={1}
-                                    step={0.01}
-                                    value={muted ? 0 : volume}
-                                    onChange={(e): void => {
-                                        const v = Number(e.target.value);
-                                        setVolume(v);
-                                        setMuted(v === 0);
-                                    }}
-                                    aria-label={t('screenShare.volume')}
-                                    className="w-40 accent-purple-500"
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <RemoteVideo
+                        remoteStream={state.remoteStream}
+                        hasAudio={state.remoteHasAudio}
+                    />
                 )}
 
                 {/* Streamer: our own preview + stop */}
