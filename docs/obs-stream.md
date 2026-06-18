@@ -97,3 +97,4 @@ OBS on H264.
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `OBS_STREAM_KEY` | _(unset)_ | Bearer token for WHIP ingest; ingest is disabled until set |
+| `OBS_WHIP_URL` | _(derived from the request host)_ | Pin the WHIP server URL shown on the `/obs` page, e.g. `https://your.domain/api/whip`. Set this if the public URL differs from what the app sees (reverse proxy, custom domain). |

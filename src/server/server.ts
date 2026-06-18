@@ -1026,11 +1026,13 @@ app.delete('/api/whip/:resourceId', (req, res) => {
     return res.status(204).end();
 });
 
-// Ingest setup info for the OBS page (WHIP URL + shared key).
+// Ingest setup info for the OBS page (WHIP URL + shared key). The WHIP URL
+// can be pinned via OBS_WHIP_URL (e.g. a public domain that differs from the
+// request host); otherwise it is derived from the incoming request.
 app.get('/api/obs/info', mustBeAuthenticated, (req, res) => {
     return res.json({
         configured: !!whipStreamKey(),
-        url: absoluteUrl(req, '/api/whip'),
+        url: process.env.OBS_WHIP_URL || absoluteUrl(req, '/api/whip'),
         streamKey: whipStreamKey()
     });
 });
