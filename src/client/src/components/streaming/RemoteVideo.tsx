@@ -13,11 +13,16 @@ type Props = {
 };
 
 /**
- * Plays an incoming WebRTC stream for a viewer. The picture goes to a muted,
- * video-only <video>; sound goes through a dedicated <audio> sink (the
- * reliable way to render remote audio). Provides volume/mute, an "enable
- * sound" gesture fallback, and keeps the audio in lock-step with the video's
- * pause/play. Shared by the screen-share and OBS pages.
+ * Plays an incoming WebRTC stream for a viewer through a SINGLE <video>
+ * element holding both the audio and video tracks. Rendering both tracks in
+ * one element lets the browser keep them in lip-sync via RTCP timestamps —
+ * splitting audio into a separate <audio> sink (as we used to) discards that
+ * sync and causes A/V drift.
+ *
+ * Autoplay-with-sound is often blocked, so we attempt sound first and fall
+ * back to muted playback with an "enable sound" button (a click gesture
+ * unblocks audio). Volume/mute act directly on the element. Shared by the
+ * screen-share and OBS pages.
  */
 export const RemoteVideo = ({
     remoteStream,
@@ -28,46 +33,38 @@ export const RemoteVideo = ({
     const [volume, setVolume] = useState(1);
     const [muted, setMuted] = useState(false);
     const videoRef = useRef<HTMLVideoElement | null>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
-        if (!remoteStream) return;
-        const stream = remoteStream.stream;
-
-        const videoEl = videoRef.current;
-        if (videoEl) {
-            videoEl.srcObject = new MediaStream(stream.getVideoTracks());
-            videoEl.muted = true;
-            videoEl.play().catch(() => undefined);
-        }
-
-        const audioEl = audioRef.current;
-        if (audioEl) {
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                audioEl.srcObject = new MediaStream(audioTracks);
-                audioEl.volume = volume;
-                audioEl.muted = muted;
-                audioEl
-                    .play()
-                    .then(() => setAudioBlocked(false))
-                    .catch(() => setAudioBlocked(true));
-            }
-        }
+        const el = videoRef.current;
+        if (!el || !remoteStream) return;
+        // One element, both tracks -> the browser keeps audio/video in sync.
+        el.srcObject = remoteStream.stream;
+        el.volume = volume;
+        el.muted = muted;
+        // Try to play with sound; if the browser blocks autoplay-with-audio,
+        // fall back to muted playback and surface an "enable sound" button.
+        el.play()
+            .then(() => setAudioBlocked(false))
+            .catch(() => {
+                el.muted = true;
+                setMuted(true);
+                setAudioBlocked(true);
+                el.play().catch(() => undefined);
+            });
         // volume/muted are applied by their own effect; only re-run on a new
         // stream.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [remoteStream]);
 
     useEffect(() => {
-        const el = audioRef.current;
+        const el = videoRef.current;
         if (!el) return;
         el.volume = volume;
         el.muted = muted;
     }, [volume, muted]);
 
     const enableSound = (): void => {
-        const el = audioRef.current;
+        const el = videoRef.current;
         if (!el) return;
         setMuted(false);
         el.muted = false;
@@ -92,19 +89,10 @@ export const RemoteVideo = ({
                     ref={videoRef}
                     autoPlay
                     playsInline
-                    muted
                     controls
-                    // Keep the dedicated audio sink in lock-step with the
-                    // picture so the native pause/play also stops/starts sound.
-                    onPlay={(): void => {
-                        audioRef.current?.play().catch(() => undefined);
-                    }}
-                    onPause={(): void => audioRef.current?.pause()}
                     className="w-full max-h-[75vh] bg-black object-contain"
                 />
             </div>
-            {/* Dedicated sink for remote audio (see attach effect) */}
-            <audio ref={audioRef} autoPlay className="hidden" />
             {hasAudio && (
                 <div className="mt-3 flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                     <button
