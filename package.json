@@ -62,6 +62,7 @@
         "react-router-dom": "6.10.0",
         "redux": "4.2.1",
         "screenfull": "6.0.2",
+        "sdp-transform": "3.0.0",
         "sequelize": "6.37.3",
         "socket.io": "4.8.1",
         "socket.io-client": "4.8.0",
